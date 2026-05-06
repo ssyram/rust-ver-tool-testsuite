@@ -1,0 +1,2 @@
+command      = ["cargo", "kani", "--bin", "__ts_harness"]
+timeout_secs = 600
