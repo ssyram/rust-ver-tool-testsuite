@@ -105,6 +105,8 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
 pub struct Tool {
     pub name: String,
     pub command: Vec<String>,
+    /// Per-tool timeout in seconds. Parsed but not yet enforced — see §7.5; exec kills via SIGTERM/SIGKILL after this duration. TODO.
+    #[allow(dead_code)]
     pub timeout_secs: u64,
     pub harness_template: String,
 }
