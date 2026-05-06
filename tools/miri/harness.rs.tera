@@ -1,0 +1,3 @@
+fn main() {
+    {{ target_crate_name }}::{{ entry_fn }}();
+}
