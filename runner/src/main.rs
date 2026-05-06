@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use rayon::prelude::*;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod discover;
 mod exec;
+mod report;
 
 #[derive(Parser, Debug)]
 #[command(name = "runner")]
@@ -86,59 +86,69 @@ fn main() -> Result<()> {
         .build()
         .context("building rayon thread pool")?;
 
-    let succeeded = AtomicUsize::new(0);
-    let failed = AtomicUsize::new(0);
-
-    pool.install(|| {
-        tasks.par_iter().for_each(|(tool, example, entry)| {
-            match exec::execute(tool, example, entry, &run_dir) {
-                Ok(r) => {
-                    let tag = match r.status {
-                        exec::Status::Success => {
-                            succeeded.fetch_add(1, Ordering::Relaxed);
-                            "SUCCESS"
+    // Run all tasks in parallel; collect per-task results for the report.
+    // println! inside the closure is internally synchronized; lines won't tear.
+    let results: Vec<report::TaskResult> = pool.install(|| {
+        tasks
+            .par_iter()
+            .map(|(tool, example, entry)| {
+                let entry_id = format!("{}/{}/{}", example.feature, example.dir, entry);
+                match exec::execute(tool, example, entry, &run_dir) {
+                    Ok(r) => {
+                        let (tag, status_str) = match r.status {
+                            exec::Status::Success => ("SUCCESS", "SUCCESS"),
+                            exec::Status::Failed => ("FAILED ", "FAILED"),
+                        };
+                        let exit_part = match r.exit_code {
+                            Some(c) if !matches!(r.status, exec::Status::Success) => {
+                                format!(", exit={}", c)
+                            }
+                            _ => String::new(),
+                        };
+                        println!(
+                            "[{tag}] {tool} {entry_id} ({ms}ms{exit_part})",
+                            tool = tool.name,
+                            ms = r.duration_ms,
+                        );
+                        report::TaskResult {
+                            entry_id,
+                            tool: tool.name.clone(),
+                            status: status_str.to_string(),
+                            exit_code: r.exit_code,
+                            duration_ms: r.duration_ms,
+                            raw_stdout: Some(r.raw_stdout_rel),
+                            raw_stderr: Some(r.raw_stderr_rel),
                         }
-                        exec::Status::Failed => {
-                            failed.fetch_add(1, Ordering::Relaxed);
-                            "FAILED "
+                    }
+                    Err(e) => {
+                        println!(
+                            "[ERROR ] {tool} {entry_id} : {err:#}",
+                            tool = tool.name,
+                            err = e,
+                        );
+                        report::TaskResult {
+                            entry_id,
+                            tool: tool.name.clone(),
+                            status: "FAILED".to_string(),
+                            exit_code: None,
+                            duration_ms: 0,
+                            raw_stdout: None,
+                            raw_stderr: None,
                         }
-                    };
-                    let exit_part = match r.exit_code {
-                        Some(c) if !matches!(r.status, exec::Status::Success) => {
-                            format!(", exit={}", c)
-                        }
-                        _ => String::new(),
-                    };
-                    // println! is internally synchronized; lines won't tear.
-                    println!(
-                        "[{tag}] {tool} {feat}/{dir}/{entry} ({ms}ms{exit_part})",
-                        tool = tool.name,
-                        feat = example.feature,
-                        dir = example.dir,
-                        entry = entry,
-                        ms = r.duration_ms,
-                    );
+                    }
                 }
-                Err(e) => {
-                    failed.fetch_add(1, Ordering::Relaxed);
-                    println!(
-                        "[ERROR ] {tool} {feat}/{dir}/{entry} : {err:#}",
-                        tool = tool.name,
-                        feat = example.feature,
-                        dir = example.dir,
-                        entry = entry,
-                        err = e,
-                    );
-                }
-            }
-        });
+            })
+            .collect()
     });
 
-    let s = succeeded.load(Ordering::Relaxed);
-    let f = failed.load(Ordering::Relaxed);
-    let total = s + f;
+    report::write_results_json(&run_dir, &run_id, &results)?;
+    report::write_report_md(&run_dir, &run_id, &results)?;
+
+    let s = results.iter().filter(|r| r.status == "SUCCESS").count();
+    let f = results.len() - s;
     println!("---");
-    println!("Total: {} succeeded / {} failed / {} total", s, f, total);
+    println!("Total: {} succeeded / {} failed / {} total", s, f, results.len());
     println!("run_dir: {}", run_dir.display());
+    println!("report:  {}", run_dir.join("report.md").display());
     Ok(())
 }

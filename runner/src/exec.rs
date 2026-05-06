@@ -15,6 +15,10 @@ pub struct ExecResult {
     pub status: Status,
     pub exit_code: Option<i32>,
     pub duration_ms: u128,
+    /// Relative path (from run_dir) to the captured stdout file.
+    pub raw_stdout_rel: String,
+    /// Relative path (from run_dir) to the captured stderr file.
+    pub raw_stderr_rel: String,
 }
 
 /// Run one (tool, example, entry) execution end-to-end:
@@ -98,10 +102,13 @@ pub fn execute(
         sanitize(&example.dir),
         sanitize(entry),
     );
-    std::fs::write(raw_dir.join(format!("{}.stdout", slug)), &output.stdout)?;
-    std::fs::write(raw_dir.join(format!("{}.stderr", slug)), &output.stderr)?;
+    let raw_stdout_rel = format!("raw/{}/{}.stdout", tool.name, slug);
+    let raw_stderr_rel = format!("raw/{}/{}.stderr", tool.name, slug);
+    let raw_exit_rel = format!("raw/{}/{}.exit", tool.name, slug);
+    std::fs::write(run_dir.join(&raw_stdout_rel), &output.stdout)?;
+    std::fs::write(run_dir.join(&raw_stderr_rel), &output.stderr)?;
     std::fs::write(
-        raw_dir.join(format!("{}.exit", slug)),
+        run_dir.join(&raw_exit_rel),
         format!("{:?}\n", output.status.code()),
     )?;
 
@@ -118,6 +125,8 @@ pub fn execute(
         status,
         exit_code,
         duration_ms,
+        raw_stdout_rel,
+        raw_stderr_rel,
     })
 }
 
