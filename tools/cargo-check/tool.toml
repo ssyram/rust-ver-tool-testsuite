@@ -1,0 +1,1 @@
+command = ["cargo", "check", "--bin", "__ts_harness"]
