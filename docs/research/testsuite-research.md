@@ -468,19 +468,19 @@ fn main() {
 ```
 1. exec_id = <tool>__<entry-id-slug>
 2. work_dir = runs/<ts>/work/<exec_id>/
-3. git worktree add <work_dir> HEAD
-4. cd <work_dir>/<example-dir>/<target_path>/
+3. 递归复制 example crate 目录 → work_dir（跳过 target/）
+4. cd <work_dir>/<target_path>/    ← target_path 默认 "."
 5. 渲染 tools/<tool>/harness.rs.tera 用 (target_crate_name, entry_fn) → src/bin/__ts_harness.rs
 6. 起子进程跑 tool.toml.command，捕获 stdout/stderr/exit/wall-time，应用超时
 7. 落盘 raw outputs
-8. git worktree remove <work_dir>
+8. 删除 work_dir
 ```
 
-### 7.3 worktree 管理
+### 7.3 隔离机制（cp 而非 git worktree）
 
-- 用 `git worktree add <dir> HEAD` 创建——HEAD 指向 testsuite 仓库当前提交，原子快照
-- 完成后 `git worktree remove <dir>` 清理
-- 异常退出未清理的 worktree：下次启动时检测 `runs/` 下残留并 prune
+- 复制 example crate 目录到 work_dir，跳过 `target/`（避免 build 缓存污染）
+- 完成后 `std::fs::remove_dir_all` 清理；整次 run 结束时 `runs/<ts>/` 可整体删除
+- **选择 cp 而非 git worktree 的理由**：worktree 拿 HEAD，迭代时每次新加样例都得 commit 才能跑；cp 拿当前文件，开发友好。两者契约等价（隔离副本），运行结果不变；§5 通用性论证不依赖具体复制机制。
 
 ### 7.4 并发
 

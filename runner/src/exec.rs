@@ -18,11 +18,11 @@ pub struct ExecResult {
 }
 
 /// Run one (tool, example, entry) execution end-to-end:
-/// 1. git worktree add into runs/<run_id>/work/<exec_id>/
-/// 2. render harness.rs.tera into <worktree>/<target_path>/src/bin/__ts_harness.rs
-/// 3. spawn tool.command with cwd = <worktree>/<target_path>
+/// 1. copy example crate dir into runs/<run_id>/work/<exec_id>/ (skip target/)
+/// 2. render harness.rs.tera into <work>/<target_rel>/src/bin/__ts_harness.rs
+/// 3. spawn tool.command with cwd = <work>/<target_rel>
 /// 4. capture stdout/stderr/exit; persist into runs/<run_id>/raw/<tool>/
-/// 5. git worktree remove --force
+/// 5. remove work dir
 pub fn execute(
     tool: &Tool,
     example: &Example,
@@ -38,33 +38,26 @@ pub fn execute(
     );
     let work_dir = run_dir.join("work").join(&exec_id);
 
-    let testsuite_root = std::env::current_dir().context("getting cwd")?;
-    let testsuite_root = testsuite_root.canonicalize().context("canonicalizing cwd")?;
-
-    // 1. git worktree add
-    let status = Command::new("git")
-        .args(["worktree", "add", "--detach"])
-        .arg(&work_dir)
-        .arg("HEAD")
-        .current_dir(&testsuite_root)
-        .status()
-        .context("spawning `git worktree add`")?;
-    if !status.success() {
-        anyhow::bail!("`git worktree add` failed for {}", work_dir.display());
+    // 1. Copy example crate into work_dir (skip target/ to avoid copying build artifacts)
+    if work_dir.exists() {
+        std::fs::remove_dir_all(&work_dir)
+            .with_context(|| format!("clearing {}", work_dir.display()))?;
     }
+    copy_dir_excluding(&example.root, &work_dir, &["target"])
+        .with_context(|| format!("copying {} → {}", example.root.display(), work_dir.display()))?;
 
-    // The example's target_path is absolute under testsuite_root; remap to inside the worktree.
+    // The example's target_path is absolute under example.root; remap to inside work_dir.
     let target_rel = example
         .target_path
-        .strip_prefix(&testsuite_root)
+        .strip_prefix(&example.root)
         .with_context(|| {
             format!(
-                "example target {} is not under {}",
+                "example target {} is not under example root {}",
                 example.target_path.display(),
-                testsuite_root.display()
+                example.root.display()
             )
         })?;
-    let target_in_worktree = work_dir.join(target_rel);
+    let target_in_workdir = work_dir.join(target_rel);
 
     // 2. Render harness
     let mut tera = Tera::default();
@@ -77,7 +70,7 @@ pub fn execute(
         .render("harness", &ctx)
         .context("rendering harness template")?;
 
-    let bin_dir = target_in_worktree.join("src").join("bin");
+    let bin_dir = target_in_workdir.join("src").join("bin");
     std::fs::create_dir_all(&bin_dir)
         .with_context(|| format!("creating {}", bin_dir.display()))?;
     let harness_path = bin_dir.join("__ts_harness.rs");
@@ -88,11 +81,11 @@ pub fn execute(
     let start = Instant::now();
     let mut cmd = Command::new(&tool.command[0]);
     cmd.args(&tool.command[1..]);
-    cmd.current_dir(&target_in_worktree);
+    cmd.current_dir(&target_in_workdir);
 
     let output = cmd
         .output()
-        .with_context(|| format!("running {:?} in {}", tool.command, target_in_worktree.display()))?;
+        .with_context(|| format!("running {:?} in {}", tool.command, target_in_workdir.display()))?;
     let duration_ms = start.elapsed().as_millis();
 
     // 4. Persist raw outputs
@@ -112,12 +105,8 @@ pub fn execute(
         format!("{:?}\n", output.status.code()),
     )?;
 
-    // 5. Cleanup worktree
-    let _ = Command::new("git")
-        .args(["worktree", "remove", "--force"])
-        .arg(&work_dir)
-        .current_dir(&testsuite_root)
-        .status();
+    // 5. Cleanup work dir
+    let _ = std::fs::remove_dir_all(&work_dir);
 
     let exit_code = output.status.code();
     let status = if output.status.success() {
@@ -130,6 +119,35 @@ pub fn execute(
         exit_code,
         duration_ms,
     })
+}
+
+/// Recursively copy `src` to `dst`, skipping any directory whose file name is in `excludes`.
+fn copy_dir_excluding(src: &Path, dst: &Path, excludes: &[&str]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if excludes.iter().any(|x| *x == name_str.as_ref()) {
+            continue;
+        }
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(&name);
+        if ty.is_dir() {
+            copy_dir_excluding(&from, &to, excludes)?;
+        } else if ty.is_symlink() {
+            // Preserve symlink as-is (uncommon in cargo crates; safe fallback).
+            let target = std::fs::read_link(&from)?;
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(target, &to)?;
+            #[cfg(not(unix))]
+            std::fs::copy(&from, &to).map(|_| ())?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 /// Replace path-unsafe characters in IDs with underscores for filesystem use.
