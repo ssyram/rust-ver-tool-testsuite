@@ -1,0 +1,12 @@
+// entry_mode = "lib": this file replaces the example's src/lib.rs.
+// The original lib has been renamed to src/__ts_inner.rs by the runner.
+extern crate creusot_std;
+use creusot_std::prelude::*;
+
+mod __ts_inner;
+pub use __ts_inner::*;
+
+#[allow(dead_code)]
+fn __ts_invoke() {
+    __ts_inner::{{ entry_fn }}();
+}

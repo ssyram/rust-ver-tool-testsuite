@@ -1,0 +1,8 @@
+[package]
+name = "charon_limit_copy_deref_closure"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+

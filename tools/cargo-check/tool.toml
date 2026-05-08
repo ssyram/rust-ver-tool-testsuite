@@ -1,1 +1,2 @@
 command = ["cargo", "check", "--bin", "__ts_harness"]
+version_command = ["cargo", "--version"]

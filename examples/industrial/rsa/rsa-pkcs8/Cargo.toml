@@ -1,0 +1,12 @@
+[package]
+name = "rsa_pkcs8"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rsa  = { path = "../../../../vendor/rsa" }
+rand = "=0.8.5"
+

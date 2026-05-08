@@ -1,0 +1,8 @@
+[package]
+name = "int_width_overflowing_i32"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+

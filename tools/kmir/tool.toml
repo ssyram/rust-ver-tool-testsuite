@@ -1,0 +1,22 @@
+# KMIR (K Framework based Rust MIR formal operational semantics).
+#
+# 要求 K Framework + kmir 已装好且在 PATH 上；K 在运行时需要 Java，故
+# .env 提供 TS_KMIR_JAVA_BIN_DIR 把 openjdk 注入 PATH 最前。
+# cargo 由 runner 继承的系统 PATH 找到（不在这里硬编码 .cargo/bin）。
+# 工具 / 版本绑定见 README。
+#
+# K-stuck 检测：kmir run 在 K interpreter 卡 stuck 状态（K cell 残留
+# #execTerminator(InlineAsm) / #mkAggregate(closure) 等 unsupported 项）时
+# CLI 仍 exit 0。我们通过 grep K 输出末尾是否含 "#EndProgram ~> .K"（K 跑完
+# 的稳定签名）来识别 K-stuck，把假阳性翻为 exit 2。
+# 不抓 #EndProgram 时 stdout 会含残留 K cell——保留可被人审。
+
+command = [
+  "sh", "-c",
+  "PATH=\"${TS_KMIR_JAVA_BIN_DIR}:$PATH\" kmir run --bin __ts_harness > /tmp/kmir-out-$$ 2>&1; rc=$?; cat /tmp/kmir-out-$$; if [ $rc -eq 0 ]; then if ! grep -q '#EndProgram[[:space:]]*~>[[:space:]]*\\.K' /tmp/kmir-out-$$; then echo '[kmir-oracle] FAIL: K interpreter stuck (no #EndProgram ~> .K terminator)' >&2; rc=2; fi; fi; rm -f /tmp/kmir-out-$$; exit $rc"
+]
+timeout_secs = 180
+version_command = [
+  "sh", "-c",
+  "PATH=\"${TS_KMIR_JAVA_BIN_DIR}:$PATH\" kmir --version"
+]

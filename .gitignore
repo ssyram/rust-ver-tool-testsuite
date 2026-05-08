@@ -1,3 +1,45 @@
+# --- Cargo / Rust build ---
 /target
-/runs
+**/target
 Cargo.lock
+**/Cargo.lock
+
+# --- runner output & sandboxes ---
+/runs
+/.tmp/
+
+# --- OS / editor noise ---
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# --- verifier translation artefacts (produced inside isolated work copies;
+#     should never end up under examples/ or tools/ but ignore defensively) ---
+*.llbc
+*.smir.json
+rocq_translation/
+lean-out/
+fstar-out/
+coq-out/
+hol4-out/
+proofs/coq/extraction/
+proofs/lean/extraction/
+proofs/fstar/extraction/
+
+# --- venv / pip cache from KMIR / sub-agent staging ---
+.venv/
+__pycache__/
+*.pyc
+
+# --- per-machine tool path config ---
+# Copy .env.example → .env, fill in your local install paths.
+# .env contains user-specific absolute paths and is never committed.
+.env
+
+# --- defensive: stray debug/build artifacts that should never be committed ---
+*.rlib
+/test-*
+
+# --- rustc internal compiler error dumps ---
+rustc-ice-*.txt

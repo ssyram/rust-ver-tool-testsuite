@@ -1,0 +1,21 @@
+# tool.toml for aeneas-coq
+#
+# Two-stage pipeline (charon → .llbc → aeneas → .v) wrapped in
+# aeneas-coq-wrapper.sh.  Runner strips TS_* envvars before spawning
+# children, so we re-export them as non-prefixed names via `env`.
+#
+# Versions / commit hashes for charon and aeneas: see .env.example.
+
+command = [
+  "env",
+  "CHARON_BIN=${TS_CHARON_BIN}",
+  "AENEAS_BIN=${TS_AENEAS_BIN}",
+  "${TS_PROJECT_ROOT}/tools/aeneas-coq/aeneas-coq-wrapper.sh"
+]
+
+version_command = ["sh", "-c", "${TS_AENEAS_BIN} -version 2>&1 | tail -1"]
+
+timeout_secs = 600
+
+# aeneas operates on the lib target only (no binary harness needed).
+entry_mode = "lib"

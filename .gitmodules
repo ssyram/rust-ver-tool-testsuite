@@ -1,0 +1,9 @@
+[submodule "vendor/sha2"]
+	path = vendor/sha2
+	url = https://github.com/RustCrypto/hashes.git
+[submodule "vendor/x509-parser"]
+	path = vendor/x509-parser
+	url = https://github.com/rusticata/x509-parser.git
+[submodule "vendor/rsa"]
+	path = vendor/rsa
+	url = https://github.com/RustCrypto/RSA.git

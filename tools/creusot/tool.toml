@@ -1,0 +1,5 @@
+command          = ["${TS_CARGO_CREUSOT}"]
+timeout_secs     = 900
+extra_cargo_deps = ['creusot-std = "0.11.0"']
+entry_mode       = "lib"
+version_command = ["sh", "-c", "cargo creusot version"]

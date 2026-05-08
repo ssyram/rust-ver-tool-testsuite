@@ -1,0 +1,15 @@
+# tool.toml for aeneas-fstar
+# Same shape as aeneas-coq.
+
+command = [
+  "env",
+  "CHARON_BIN=${TS_CHARON_BIN}",
+  "AENEAS_BIN=${TS_AENEAS_BIN}",
+  "${TS_PROJECT_ROOT}/tools/aeneas-fstar/aeneas-fstar-wrapper.sh"
+]
+
+version_command = ["sh", "-c", "${TS_AENEAS_BIN} -version 2>&1 | tail -1"]
+
+timeout_secs = 600
+
+entry_mode = "lib"

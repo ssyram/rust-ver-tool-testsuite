@@ -4,6 +4,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Which of the two example schema tracks an Example was discovered as.
+/// See `principles.md` §四 原则 A 双轨 schema and `detailed-design.md` §一.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SchemaKind {
+    /// Single-file track (default): `<example_dir>/hirusttest.toml`. Used for
+    /// simple single-feature tests.
+    SingleFile,
+    /// Directory track: `<example_dir>/.hirusttest/config.toml` (+ optional
+    /// auxiliary files in the same `.hirusttest/` dir). Reserved for external
+    /// composite projects (e.g. vendor/x509-parser).
+    Directory,
+}
+
 /// A discovered example test crate.
 pub struct Example {
     /// First-level directory under examples/. Free-form string (e.g., "vec", "hello").
@@ -16,12 +29,27 @@ pub struct Example {
     pub target_path: PathBuf,
     /// Cargo [package].name of the target crate.
     pub crate_name: String,
-    /// Entry function names registered in testsuite.toml.
+    /// Entry function names registered in the example's config.
     pub entries: Vec<String>,
+    /// Which schema track this example was discovered as. Read by future
+    /// exec-stage stub injection (P-future); currently observable but unused
+    /// — silence dead-code until the consumer lands.
+    #[allow(dead_code)]
+    pub schema_kind: SchemaKind,
+    /// Absolute path to the `.hirusttest/` directory for directory-track
+    /// examples (used by exec for stub injection etc.). `None` for
+    /// single-file-track examples. See `schema_kind` note re. dead-code.
+    #[allow(dead_code)]
+    pub hirusttest_dir: Option<PathBuf>,
 }
 
+/// Common config schema shared by both tracks. v1 only reads `entries` +
+/// `target_path`; the directory track reserves additional fields
+/// (`entry_overrides`, `tools.<name>`, ...) for future extensions. We do not
+/// set `deny_unknown_fields`, so unknown keys are silently accepted — extension
+/// fields can land in `.hirusttest/config.toml` without breaking deserialize.
 #[derive(Deserialize)]
-struct TestsuiteToml {
+struct HirusttestToml {
     entries: Vec<String>,
     target_path: Option<String>,
 }
@@ -36,25 +64,112 @@ struct CargoPackage {
     name: String,
 }
 
-/// Walk examples/<feature>/<dir>/ two levels deep; collect every dir that
-/// contains a testsuite.toml.
+/// Marker file: if present in a directory, that directory and its entire
+/// subtree are skipped — neither the directory itself nor any of its descendants
+/// are considered as entries. Useful for vendor/ submodules that contain
+/// Cargo workspaces unrelated to the testsuite, or for scratch dirs.
+const SKIP_MARKER: &str = ".no-hirusttest";
+
+/// Name of the directory-track config root. When this directory exists at an
+/// example dir's top level, the example is treated as directory-track.
+const DIR_TRACK_DIRNAME: &str = ".hirusttest";
+
+/// Single-file-track config filename.
+const SINGLE_FILE_TRACK_NAME: &str = "hirusttest.toml";
+
+/// Directory-track config filename (lives inside `.hirusttest/`).
+const DIR_TRACK_CONFIG_NAME: &str = "config.toml";
+
+/// Walk examples/ at unlimited depth; collect every directory that holds either
+/// a single-file-track signal (`hirusttest.toml`) or a directory-track signal
+/// (`.hirusttest/config.toml`). A directory containing `.no-hirusttest` is
+/// skipped along with its entire subtree. A `.hirusttest/` directory is never
+/// recursed into — its contents are auxiliary files for its parent example,
+/// not nested examples.
+///
+/// Disambiguation rules (per principles §四 原则 A 双轨 schema and
+/// detailed-design §一):
+///   1. `.hirusttest/config.toml` exists → directory track.
+///   2. else `hirusttest.toml` exists → single-file track.
+///   3. else not an example.
+///   4. both `hirusttest.toml` and `.hirusttest/` present → return Err
+///      (ambiguous; the example must commit to one track).
+///
+/// `feature` is always the first path component under `examples_dir`. `dir`
+/// is the remainder of the path joined with '/' (e.g. for
+/// `examples/industrial/sha2/sha256-digest/hirusttest.toml` we get
+/// `feature = "industrial"`, `dir = "sha2/sha256-digest"`).
 pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
     let mut result = Vec::new();
-    for entry in WalkDir::new(examples_dir).max_depth(2).min_depth(2) {
+    let walker = WalkDir::new(examples_dir).into_iter().filter_entry(|e| {
+        if !e.file_type().is_dir() {
+            return true;
+        }
+        // Skip a directory entirely (and its descendants) if it has the
+        // .no-hirusttest marker. This is the "屏蔽" hook.
+        if e.path().join(SKIP_MARKER).exists() {
+            return false;
+        }
+        // Never descend into a `.hirusttest/` subtree — its contents are
+        // auxiliary files for the parent example, not nested examples. (The
+        // parent example is detected at the parent dir level.)
+        if e.file_name() == DIR_TRACK_DIRNAME {
+            return false;
+        }
+        true
+    });
+    for entry in walker {
         let entry = entry.with_context(|| format!("walking {}", examples_dir.display()))?;
         if !entry.file_type().is_dir() {
             continue;
         }
         let dir = entry.path();
-        let testsuite_toml = dir.join("testsuite.toml");
-        if !testsuite_toml.exists() {
+        // The examples_dir itself is the walker root — it has no signal files
+        // and no first-level component relative to itself. Skip explicitly.
+        if dir == examples_dir {
             continue;
         }
 
-        let ts_text = fs::read_to_string(&testsuite_toml)
-            .with_context(|| format!("reading {}", testsuite_toml.display()))?;
-        let ts: TestsuiteToml = toml::from_str(&ts_text)
-            .with_context(|| format!("parsing {}", testsuite_toml.display()))?;
+        let single_file = dir.join(SINGLE_FILE_TRACK_NAME);
+        let dir_track_root = dir.join(DIR_TRACK_DIRNAME);
+        let dir_track_config = dir_track_root.join(DIR_TRACK_CONFIG_NAME);
+
+        let single_file_exists = single_file.exists();
+        let dir_track_config_exists = dir_track_config.exists();
+        let dir_track_root_exists = dir_track_root.exists();
+
+        // Ambiguity: both tracks signal at once. Per detailed-design §一 边界 3,
+        // this must be a hard error — silent precedence would let a dropped
+        // hirusttest.toml mask a directory-track config, or vice versa.
+        if single_file_exists && dir_track_root_exists {
+            return Err(anyhow!(
+                "ambiguous schema at {}: both `{}` and `{}/` exist; an example must commit to exactly one track",
+                dir.display(),
+                SINGLE_FILE_TRACK_NAME,
+                DIR_TRACK_DIRNAME,
+            ));
+        }
+
+        let (config_path, schema_kind, hirusttest_dir) = if dir_track_config_exists {
+            (
+                dir_track_config.clone(),
+                SchemaKind::Directory,
+                Some(dir_track_root.clone()),
+            )
+        } else if single_file_exists {
+            (single_file.clone(), SchemaKind::SingleFile, None)
+        } else {
+            // No signal — not an example. (A `.hirusttest/` directory without
+            // `config.toml` inside is also treated as no signal: malformed
+            // setup, but not our place to error here; the user just won't see
+            // the example registered.)
+            continue;
+        };
+
+        let ts_text = fs::read_to_string(&config_path)
+            .with_context(|| format!("reading {}", config_path.display()))?;
+        let ts: HirusttestToml = toml::from_str(&ts_text)
+            .with_context(|| format!("parsing {}", config_path.display()))?;
 
         let target_rel = ts.target_path.as_deref().unwrap_or(".");
         let target_dir = dir.join(target_rel).canonicalize().with_context(|| {
@@ -70,6 +185,12 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
             .with_context(|| format!("reading {}", cargo_path.display()))?;
         let cargo: CargoToml = toml::from_str(&cargo_text)
             .with_context(|| format!("parsing {}", cargo_path.display()))?;
+        if cargo.package.name.is_empty() {
+            return Err(anyhow!(
+                "[package].name is empty in {}",
+                cargo_path.display()
+            ));
+        }
 
         let rel = dir.strip_prefix(examples_dir).unwrap();
         let mut comps = rel.components();
@@ -79,12 +200,17 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
             .as_os_str()
             .to_string_lossy()
             .to_string();
-        let dir_name = comps
-            .next()
-            .ok_or_else(|| anyhow!("example {} has no inner dir", dir.display()))?
-            .as_os_str()
-            .to_string_lossy()
-            .to_string();
+        let rest: Vec<String> = comps
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        if rest.is_empty() {
+            return Err(anyhow!(
+                "example {} has no inner dir under feature '{}'",
+                dir.display(),
+                feature
+            ));
+        }
+        let dir_name = rest.join("/");
 
         result.push(Example {
             feature,
@@ -93,6 +219,8 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
             target_path: target_dir,
             crate_name: cargo.package.name,
             entries: ts.entries,
+            schema_kind,
+            hirusttest_dir,
         });
     }
     result.sort_by(|a, b| {
@@ -101,14 +229,44 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
     Ok(result)
 }
 
+/// Where to render the harness inside the working copy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryMode {
+    /// Default. Render harness to `src/bin/__ts_harness.rs` — example lib stays
+    /// the crate's lib target, harness is a binary alongside it.
+    Bin,
+    /// Render harness to `src/lib.rs`, after first renaming the original
+    /// `src/lib.rs` to `src/__ts_inner.rs`. The harness becomes the crate's
+    /// lib target; the original lib's contents are pulled in as `mod __ts_inner`
+    /// so all public items remain reachable as `<crate>::*`. Used by tools
+    /// (e.g. Creusot) that require the *top-level lib crate itself* to import
+    /// tool-specific prelude.
+    Lib,
+}
+
+impl Default for EntryMode {
+    fn default() -> Self { EntryMode::Bin }
+}
+
 /// A discovered tool integration: tools/<name>/{tool.toml + harness.rs.tera}.
 pub struct Tool {
     pub name: String,
     pub command: Vec<String>,
-    /// Per-tool timeout in seconds. Parsed but not yet enforced — see §7.5; exec kills via SIGTERM/SIGKILL after this duration. TODO.
-    #[allow(dead_code)]
+    /// Per-tool timeout in seconds. After this duration the subprocess is
+    /// SIGKILL'd and the task is marked FAILED with `timed_out: true` (see §7.5).
     pub timeout_secs: u64,
     pub harness_template: String,
+    /// Lines to append to the working-copy `Cargo.toml`'s `[dependencies]` section
+    /// before invoking the tool. Each entry is a TOML dependency line such as
+    /// `creusot-std = "0.11.0"`. Used by tools (e.g. Creusot) that require the
+    /// example crate to depend on a tool-specific support crate.
+    pub extra_cargo_deps: Vec<String>,
+    /// Where to render the harness — see `EntryMode`. Default `Bin`.
+    pub entry_mode: EntryMode,
+    /// argv to capture this tool's version string (run once at run start).
+    /// Empty = skip version capture.
+    pub version_command: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -116,10 +274,64 @@ struct ToolToml {
     command: Vec<String>,
     #[serde(default = "default_timeout")]
     timeout_secs: u64,
+    #[serde(default)]
+    extra_cargo_deps: Vec<String>,
+    #[serde(default)]
+    entry_mode: EntryMode,
+    #[serde(default)]
+    version_command: Vec<String>,
 }
 
 fn default_timeout() -> u64 {
     300
+}
+
+/// Expand `${VAR}` references in `s` against the runner's process environment.
+/// Variable names must match `[A-Z_][A-Z0-9_]*`. Missing variables expand to
+/// the empty string. Non-matching `$...` sequences are left untouched. Users
+/// supply their environment by `source .env` (or equivalent) before invoking
+/// the runner — `.env.example` documents the expected variable names.
+fn expand_env(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '$' {
+            out.push(c);
+            continue;
+        }
+        if chars.peek() != Some(&'{') {
+            out.push('$');
+            continue;
+        }
+        chars.next(); // consume '{'
+        let mut name = String::new();
+        let mut closed = false;
+        while let Some(&nc) = chars.peek() {
+            if nc == '}' {
+                chars.next();
+                closed = true;
+                break;
+            }
+            name.push(nc);
+            chars.next();
+        }
+        let valid = !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+        if closed && valid {
+            out.push_str(&std::env::var(&name).unwrap_or_default());
+        } else {
+            // Not a recognized var-ref — emit literally, including any chars consumed.
+            out.push('$');
+            out.push('{');
+            out.push_str(&name);
+            if closed {
+                out.push('}');
+            }
+        }
+    }
+    out
 }
 
 pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
@@ -143,6 +355,13 @@ pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
             .with_context(|| format!("reading {}", tool_toml_path.display()))?;
         let parsed: ToolToml = toml::from_str(&tool_text)
             .with_context(|| format!("parsing {}", tool_toml_path.display()))?;
+        if parsed.command.is_empty() {
+            return Err(anyhow!(
+                "tool {} has empty `command` in {}",
+                dir.display(),
+                tool_toml_path.display()
+            ));
+        }
         let template = fs::read_to_string(&harness_path)
             .with_context(|| format!("reading {}", harness_path.display()))?;
 
@@ -152,11 +371,24 @@ pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
             .to_string_lossy()
             .to_string();
 
+        // Expand ${VAR} in command/version_command against the runner process
+        // env (sourced from .env by the user before launch). Keeps argv as an
+        // array; no shell wrapping is required for variable substitution.
+        let command: Vec<String> = parsed.command.into_iter().map(|s| expand_env(&s)).collect();
+        let version_command: Vec<String> = parsed
+            .version_command
+            .into_iter()
+            .map(|s| expand_env(&s))
+            .collect();
+
         result.push(Tool {
             name,
-            command: parsed.command,
+            command,
             timeout_secs: parsed.timeout_secs,
             harness_template: template,
+            extra_cargo_deps: parsed.extra_cargo_deps,
+            entry_mode: parsed.entry_mode,
+            version_command,
         });
     }
     result.sort_by(|a, b| a.name.cmp(&b.name));

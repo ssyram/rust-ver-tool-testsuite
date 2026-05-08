@@ -1,0 +1,8 @@
+[package]
+name = "int_width_checked_all_widths"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+

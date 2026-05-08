@@ -1,0 +1,8 @@
+[package]
+name = "int_width_cast_i64_u64_i128"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+

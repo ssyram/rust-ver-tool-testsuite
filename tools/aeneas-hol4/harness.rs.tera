@@ -1,0 +1,10 @@
+// aeneas-hol4: harness is lib target; aeneas operates on the whole lib.
+// The original lib.rs is renamed to __ts_inner.rs by the runner (entry_mode = "lib").
+// This file becomes the new lib.rs; it re-exports everything from the inner module
+// so all public items remain accessible as `<crate>::*`.
+//
+// Template variables available (both referenced here for documentation):
+//   {{ target_crate_name }}  — cargo [package].name of the example crate
+//   {{ entry_fn }}           — the entry function name from hirusttest.toml
+mod __ts_inner;
+pub use __ts_inner::*;

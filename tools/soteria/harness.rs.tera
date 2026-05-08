@@ -1,0 +1,24 @@
+// soteria-rust harness template
+// entry_mode = "lib": this file replaces the example's src/lib.rs.
+// The original lib has been renamed to src/__ts_inner.rs by the runner.
+//
+// Template variables:
+//   {{ target_crate_name }}  -- crate name (informational only; soteria-rust
+//                               receives src/lib.rs directly as a standalone file)
+//   {{ entry_fn }}           -- zero-argument public function to call from main
+//
+// soteria-rust exec src/lib.rs:
+//   - Compiles this standalone .rs file (not a cargo project)
+//   - Looks for fn main() as the symbolic execution entry point
+//   - Exit 0 = no issues found (SUCCESS), 1/2/3 = issues or crash (FAILED)
+//
+// The mod __ts_inner declaration makes the original library's public items
+// available under __ts_inner::*. This requires src/__ts_inner.rs to exist,
+// which the runner guarantees by renaming src/lib.rs before writing this file.
+
+mod __ts_inner;
+pub use __ts_inner::*;
+
+fn main() {
+    let _ = __ts_inner::{{ entry_fn }}();
+}

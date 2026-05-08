@@ -1,0 +1,11 @@
+[package]
+name = "x509_parser_cert_parse"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+x509-parser = { path = "../../../../vendor/x509-parser" }
+

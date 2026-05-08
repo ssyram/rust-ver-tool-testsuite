@@ -1,2 +1,3 @@
-command      = ["/tmp/ts-tools-install/charon/bin/charon", "cargo", "--monomorphize", "--", "--lib", "--target", "aarch64-apple-darwin"]
+command      = ["${TS_CHARON_BIN}", "cargo", "--monomorphize", "--abort-on-error", "--print-llbc", "--", "--lib", "--target", "aarch64-apple-darwin"]
 timeout_secs = 600
+version_command = ["${TS_CHARON_BIN}", "version"]

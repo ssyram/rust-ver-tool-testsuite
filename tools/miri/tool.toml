@@ -1,2 +1,3 @@
 command      = ["cargo", "+nightly", "miri", "run", "--bin", "__ts_harness"]
 timeout_secs = 300
+version_command = ["cargo", "+nightly", "miri", "--version"]

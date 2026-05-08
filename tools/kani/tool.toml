@@ -1,2 +1,10 @@
-command      = ["cargo", "kani", "--bin", "__ts_harness"]
-timeout_secs = 600
+# `--only-codegen`: kani does MIR → GotoC codegen + type / model checks but does
+# NOT invoke cbmc to solve. Aligns kani with the rest of the matrix at the
+# *front-end support* layer (cargo-check / charon / hax / etc all stop at
+# translation). Letting kani solve via cbmc would make the comparison unfair —
+# it would routinely time out on collection / concurrency / recursive enums
+# while other tools just translated. SAT solving is a separate layer outside
+# this testsuite's stated goal of feature-coverage screening.
+command         = ["cargo", "kani", "--only-codegen", "--bin", "__ts_harness"]
+timeout_secs    = 120
+version_command = ["cargo", "kani", "--version"]

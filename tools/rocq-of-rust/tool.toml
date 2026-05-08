@@ -1,0 +1,35 @@
+# rocq-of-rust: standalone Rust → Rocq translator (formal-land/rocq-of-rust),
+# locked to commit `a8a76a4d` of the cli/ binary (see staging README).
+# Install: `cargo +nightly-2024-12-07 install --path cli/`.
+#
+# rocq-of-rust ingests a single .rs file via rustc_interface; it doesn't read
+# Cargo.toml. We feed it `src/lib.rs` directly. The runner already sets cwd to
+# the work-copy crate root, so a relative path is enough.
+#
+# Runtime needs: DYLD_LIBRARY_PATH on the nightly sysroot lib (so
+# librustc_driver-*.dylib resolves) and PATH putting the nightly rustc first
+# (so rocq-of-rust's internal `rustc --print=sysroot` returns the right one).
+#
+# Silent-error detection: rocq-of-rust exits 0 even when some constructs are
+# not supported; it embeds explicit failure comment blocks in the .v output.
+# To avoid false positives, oracle checks only product shape + these
+# tool-emitted comment markers, and does not fail on generic stderr warnings.
+#
+# entry_mode omitted (default "bin"). The harness is rendered to
+# src/bin/__ts_harness.rs but is irrelevant — rocq-of-rust only reads
+# src/lib.rs, never the harness file.
+#
+# NOTE: tool.toml is NOT Tera-rendered, so {{ ... }} substitution is unavailable
+# here. Anything that needs the example crate name must come from cwd / env.
+
+command = [
+    "sh", "-c",
+    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT} && export DYLD_LIBRARY_PATH=$SYSROOT/lib && export PATH=$SYSROOT/bin:$PATH && mkdir -p rocq_translation && rocq-of-rust translate --path src/lib.rs --output-path rocq_translation 2>rocq_stderr.log; rc=$?; cat rocq_stderr.log >&2; if [ $rc -eq 0 ]; then if ! test -n \"$(find rocq_translation -name '*.v' -print -quit)\"; then echo '[rocq-oracle] FAIL: no .v product written' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size 0 | wc -l)\" -ne 0 ]; then echo '[rocq-oracle] FAIL: zero-byte .v product' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size +200c | wc -l)\" -eq 0 ]; then echo '[rocq-oracle] FAIL: no .v product > 200 bytes' >&2; rc=1; elif grep -rqE '\\(\\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )' rocq_translation; then echo '[rocq-oracle] FAIL: product contains explicit failure marker' >&2; rc=1; fi; fi; rm -f rocq_stderr.log; exit $rc"
+]
+
+timeout_secs = 120
+
+version_command = [
+    "sh", "-c",
+    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT} && export DYLD_LIBRARY_PATH=$SYSROOT/lib && export PATH=$SYSROOT/bin:$PATH && rocq-of-rust --version"
+]

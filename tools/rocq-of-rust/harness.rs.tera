@@ -1,0 +1,19 @@
+// rocq-of-rust harness template
+// Template variables:
+//   {{ target_crate_name }}  -- name of the crate being tested (informational only;
+//                               rocq-of-rust translates files directly, not crates)
+//   {{ entry_fn }}           -- zero-argument public function to include for translation
+//
+// This file is NOT passed to rocq-of-rust in this testsuite.
+// The tool command translates src/lib.rs directly:
+//   rocq-of-rust translate --path src/lib.rs --output-path rocq_translation
+//
+// rocq-of-rust does NOT require:
+//   - Cargo.toml (it invokes rustc_interface directly on the .rs file)
+//   - lib root / crate self-import (unlike Creusot)
+//   - extern crate declarations (unlike Hax which hooks into cargo check)
+// Simply having a compilable .rs file is sufficient.
+
+pub fn {{ entry_fn }}() -> u32 {
+    42
+}

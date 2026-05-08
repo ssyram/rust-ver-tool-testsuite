@@ -1,0 +1,24 @@
+# 按"不允许 partial"精神：
+# - cargo hax exit 0 = engine 没 emit Diagnostic = 完整翻译候选
+# - cargo hax exit ≠ 0 = engine 有 Diagnostic = 任何 partial / unsupported / reject → FAILED
+# - 即使 cargo hax exit 0，仍要查产物 silent partial 路径（rust-engine/src/backends/
+#   lean.rs:1287/2163 的 PatKind::Error / error_node 路径 emit `text!("sorry")` 绕过
+#   emit_diagnostic，cargo hax 仍 exit 0 但产物含 sorry）→ silent partial → FAILED
+#
+# grep 精准化（实测验证 0 误报 0 漏报）：
+# - 必要：strip Lean `--` 行注释（hax 把 Rust doc comment 翻成 `--` 注释，注释里
+#   字面 sorry 不应触发 FAILED）
+# - 必要：抓 sorry **只在 term 位置**（`:= sorry` / `pure sorry` / `mk sorry` /
+#   `, sorry` / `sorry,` / `sorry)` / `sorry]`），**不**抓 binder 位置（`let sorry :`
+#   是用户合法变量名，不是 partial）
+command = [
+  "sh", "-c",
+  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into lean; rc=$?; if [ $rc -eq 0 ]; then if find proofs/lean/extraction -name '*.lean' -exec cat {} + 2>/dev/null | awk '{ sub(/--.*/, \"\"); print }' | grep -qE '(:=|pure|mk|,)[[:space:]]*sorry\\b|\\bsorry[[:space:]]*[,)\\]]'; then echo '[hax-lean-oracle] FAIL: silent partial — sorry in term position (lean.rs:1287/2163 PatKind::Error / error_node path)' >&2; rc=1; fi; fi; exit $rc"
+]
+timeout_secs    = 600
+version_command = [
+  "env",
+  "HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN}",
+  "cargo", "+nightly-2025-11-08",
+  "hax", "--version"
+]

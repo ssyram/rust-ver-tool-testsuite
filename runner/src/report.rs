@@ -1,39 +1,94 @@
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-#[derive(Serialize, Clone)]
+use crate::host::HostInfo;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ToolMeta {
+    pub name: String,
+    /// Full argv used by the runner.
+    pub command: Vec<String>,
+    pub timeout_secs: u64,
+    pub entry_mode: String,
+    pub extra_cargo_deps: Vec<String>,
+    /// Captured by running `version_command` once at run start. None means the
+    /// tool didn't declare `version_command` or capture failed.
+    pub version: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RunMeta {
+    pub run_id: String,
+    pub run_started_at: String,    // ISO 8601 UTC
+    pub run_finished_at: String,   // ISO 8601 UTC
+    pub run_started_unix_secs: u64,
+    pub run_finished_unix_secs: u64,
+    pub host: HostInfo,
+    /// Actual rayon parallelism used in this run.
+    pub parallelism: usize,
+    /// Per-tool metadata + captured version string.
+    pub tools: Vec<ToolMeta>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct TaskResult {
     /// Full ID: "<feature>/<dir>/<entry-fn>"
     pub entry_id: String,
     pub tool: String,
-    /// "SUCCESS" or "FAILED"
+    /// One of: "SUCCESS" (subprocess exit 0), "FAILED" (subprocess ran and
+    /// returned non-zero, or was killed by timeout), "UNKNOWN" (runner-internal
+    /// error before/around subprocess — does not reflect on the tool's ability
+    /// to handle the example).
     pub status: String,
     pub exit_code: Option<i32>,
     pub duration_ms: u128,
-    /// Relative path (from run_dir) to raw stdout; None if runner errored before subprocess.
+    /// True if the task was killed because it exceeded `tool.timeout_secs`.
+    /// Always implies `status == "FAILED"`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub timed_out: bool,
+    /// Relative path (from run_dir) to raw stdout; None for UNKNOWN tasks.
     pub raw_stdout: Option<String>,
     pub raw_stderr: Option<String>,
+    /// Present only for UNKNOWN: the runner-internal error string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
-#[derive(Serialize)]
-struct ResultsFile<'a> {
-    run_id: &'a str,
-    results: &'a [TaskResult],
+fn is_false(b: &bool) -> bool { !*b }
+
+/// Owned shape used both when serialising results.json and when reading it
+/// back via the `runner report <run-dir>` subcommand.
+#[derive(Serialize, Deserialize)]
+pub struct ResultsFile {
+    #[serde(flatten)]
+    pub meta: RunMeta,
+    pub results: Vec<TaskResult>,
 }
 
-/// Write run_dir/results.json — machine-readable summary.
-pub fn write_results_json(run_dir: &Path, run_id: &str, results: &[TaskResult]) -> Result<()> {
-    let file = ResultsFile { run_id, results };
+/// Write run_dir/results.json — machine-readable summary including run-level
+/// metadata (host info, timestamps, per-tool versions) so the raw data is
+/// fully self-describing without external context.
+pub fn write_results_json(
+    run_dir: &Path,
+    meta: &RunMeta,
+    results: &[TaskResult],
+) -> Result<()> {
+    // `ResultsFile` owns its data; clone refs into owned for one-off serialise.
+    let file = ResultsFile {
+        meta: meta.clone(),
+        results: results.to_vec(),
+    };
     let json = serde_json::to_string_pretty(&file).context("serializing results.json")?;
     let path = run_dir.join("results.json");
     std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
-/// Write run_dir/report.md — human-readable matrix grouped by feature.
-pub fn write_report_md(run_dir: &Path, run_id: &str, results: &[TaskResult]) -> Result<()> {
+/// Write run_dir/report.md — human-readable matrix grouped by feature, with a
+/// metadata header (run time, host, per-tool versions) at top.
+pub fn write_report_md(run_dir: &Path, meta: &RunMeta, results: &[TaskResult]) -> Result<()> {
     // Group: feature → entry_local_id ("dir/entry-fn") → tool → result
     let mut groups: BTreeMap<String, BTreeMap<String, BTreeMap<String, &TaskResult>>> =
         BTreeMap::new();
@@ -55,7 +110,116 @@ pub fn write_report_md(run_dir: &Path, run_id: &str, results: &[TaskResult]) -> 
     let tools: Vec<&str> = all_tools.keys().map(String::as_str).collect();
 
     let mut md = String::new();
-    md.push_str(&format!("# Run {}\n\n", run_id));
+    md.push_str(&format!("# Run {}\n\n", meta.run_id));
+
+    // Metadata block — always render so the raw matrix below is self-describing.
+    md.push_str("## Run metadata\n\n");
+    md.push_str(&format!("- **started**:  `{}`\n", meta.run_started_at));
+    md.push_str(&format!("- **finished**: `{}`\n", meta.run_finished_at));
+    let secs = meta
+        .run_finished_unix_secs
+        .saturating_sub(meta.run_started_unix_secs);
+    md.push_str(&format!("- **duration**: {} s wall\n", secs));
+    md.push_str(&format!(
+        "- **host**:     `{}` ({} / {} {}, {})\n",
+        meta.host.hostname.as_deref().unwrap_or("?"),
+        meta.host.os,
+        meta.host.arch,
+        meta.host.kernel.as_deref().unwrap_or(""),
+        meta.host.cpu_brand.as_deref().unwrap_or("?cpu"),
+    ));
+    md.push_str(&format!(
+        "- **memory / cores**: {} MB / {} cpus (parallelism = {})\n\n",
+        meta.host.total_mem_mb.unwrap_or(0),
+        meta.host.num_cpus.unwrap_or(0),
+        meta.parallelism,
+    ));
+    md.push_str("### Tool versions\n\n");
+    md.push_str("| tool | version |\n|---|---|\n");
+    for t in &meta.tools {
+        let v = t
+            .version
+            .as_deref()
+            .unwrap_or("(no version_command configured)");
+        // First line of the captured version string for the table row;
+        // keep markdown table single-line so it renders cleanly. Replace
+        // newlines with " · " separator.
+        let one_line = v.replace('\n', " · ");
+        md.push_str(&format!("| {} | {} |\n", t.name, one_line));
+    }
+    md.push('\n');
+
+    // ── Aggregate tables ────────────────────────────────────────────────────
+    // Per-tool: S / F / U / TIMEOUT counts + rate, plus duration distribution
+    // (avg / p50 / p90 / max in milliseconds). Sorted by SUCCESS rate desc.
+    md.push_str("## Per-tool summary\n\n");
+    md.push_str("Sorted by SUCCESS rate. Duration columns are ms (avg / median / p90 / max). Time fields are environmental — not a tool-quality score.\n\n");
+    md.push_str("| tool | n | S | F | U | TO | rate | avg | p50 | p90 | max |\n");
+    md.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+    let mut by_tool: BTreeMap<&str, Vec<&TaskResult>> = BTreeMap::new();
+    for r in results {
+        by_tool.entry(r.tool.as_str()).or_default().push(r);
+    }
+    let mut tool_rows: Vec<(u32, String, String)> = Vec::new();
+    for (tool, rs) in &by_tool {
+        let n = rs.len();
+        if n == 0 {
+            continue;
+        }
+        let s = rs.iter().filter(|r| r.status == "SUCCESS").count();
+        let f = rs.iter().filter(|r| r.status == "FAILED").count();
+        let u = rs.iter().filter(|r| r.status == "UNKNOWN").count();
+        let to = rs.iter().filter(|r| r.timed_out).count();
+        let rate_pct = (s * 100) / n;
+        let mut durs: Vec<u128> = rs.iter().map(|r| r.duration_ms).collect();
+        durs.sort_unstable();
+        let avg = durs.iter().copied().sum::<u128>() / (n as u128);
+        let p50 = durs[n / 2];
+        let p90 = durs[(n * 9) / 10];
+        let max = *durs.last().unwrap_or(&0);
+        let row = format!(
+            "| {} | {} | {} | {} | {} | {} | {}% | {} | {} | {} | {} |\n",
+            tool, n, s, f, u, to, rate_pct, avg, p50, p90, max,
+        );
+        tool_rows.push((rate_pct as u32, tool.to_string(), row));
+    }
+    tool_rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for (_, _, row) in &tool_rows {
+        md.push_str(row);
+    }
+    md.push('\n');
+
+    // Per-feature: tasks (= entries × tools that ran here), S / F / rate.
+    md.push_str("## Per-feature summary\n\n");
+    md.push_str("Tasks = entries in this feature × tools that ran on them. Sorted by SUCCESS rate.\n\n");
+    md.push_str("| feature | tasks | S | F | rate |\n|---|---:|---:|---:|---:|\n");
+    let mut by_feat: BTreeMap<String, Vec<&TaskResult>> = BTreeMap::new();
+    for r in results {
+        let feat = r.entry_id.split('/').next().unwrap_or("").to_string();
+        by_feat.entry(feat).or_default().push(r);
+    }
+    let mut feat_rows: Vec<(u32, String, String)> = Vec::new();
+    for (feat, rs) in &by_feat {
+        let n = rs.len();
+        if n == 0 {
+            continue;
+        }
+        let s = rs.iter().filter(|r| r.status == "SUCCESS").count();
+        let f = rs.iter().filter(|r| r.status == "FAILED").count();
+        let rate_pct = (s * 100) / n;
+        let row = format!(
+            "| {} | {} | {} | {} | {}% |\n",
+            feat, n, s, f, rate_pct,
+        );
+        feat_rows.push((rate_pct as u32, feat.clone(), row));
+    }
+    feat_rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for (_, _, row) in &feat_rows {
+        md.push_str(row);
+    }
+    md.push('\n');
+
+    md.push_str("## Per-feature × per-tool (entry × tool matrix follows below)\n\n");
 
     for (feature, entries) in &groups {
         md.push_str(&format!("## {}\n\n", feature));
@@ -80,6 +244,8 @@ pub fn write_report_md(run_dir: &Path, run_id: &str, results: &[TaskResult]) -> 
             for t in &tools {
                 let cell = match by_tool.get(*t) {
                     Some(r) if r.status == "SUCCESS" => "SUCCESS".to_string(),
+                    Some(r) if r.status == "UNKNOWN" => "UNKNOWN".to_string(),
+                    Some(r) if r.timed_out => "FAILED (timeout)".to_string(),
                     Some(r) => {
                         let code = r
                             .exit_code
@@ -97,10 +263,11 @@ pub fn write_report_md(run_dir: &Path, run_id: &str, results: &[TaskResult]) -> 
     }
 
     let s = results.iter().filter(|r| r.status == "SUCCESS").count();
-    let f = results.len() - s;
+    let f = results.iter().filter(|r| r.status == "FAILED").count();
+    let u = results.iter().filter(|r| r.status == "UNKNOWN").count();
     md.push_str(&format!(
-        "---\nTotal: {} succeeded / {} failed / {} total\n",
-        s, f, results.len()
+        "---\nTotal: {} succeeded / {} failed / {} unknown / {} total\n",
+        s, f, u, results.len()
     ));
 
     let path = run_dir.join("report.md");

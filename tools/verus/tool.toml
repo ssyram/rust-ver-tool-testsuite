@@ -1,0 +1,58 @@
+command = [
+  "${TS_VERUS_BIN}",
+  # --no-verify: skip Z3 SMT solving, run only Verus's front-end
+  # (parse + verus! macro elaboration + type check + lifetime check + VIR
+  # construction). Aligns with the project's "front-end support observation"
+  # principle (architecture.md). Solving is the wrong layer to test in a
+  # feature-coverage screening run.
+  #
+  # NOTE: --no-verify all-or-nothing 同时切 AIR 与 Z3，无独立切线；最深前端
+  # 表示就是 VIR。AIR ≈ SMT-LIB 的前置形式，按精神 AIR 算后端，所以 VIR 即为
+  # 前端边界。
+  "--no-verify",
+  # --log vir: 把 VIR 写到 .verus-log/crate.vir，便于函数级对应性校验（每个 fn
+  # 在 VIR 里以 (Function :name (Fun :path lib::<crate>::<fn>) ... :body ...) 存在）。
+  # 不加此 flag 时 --no-verify 不写产物，oracle 只能看 exit code，无法独立验证
+  # VIR 是否真构造完成。
+  "--log", "vir",
+  "--crate-type=lib",
+  "src/lib.rs",
+]
+timeout_secs     = 120
+entry_mode       = "lib"
+version_command  = [
+  "${TS_VERUS_BIN}",
+  "--version",
+]
+
+# ── Why entry_mode = "lib" ────────────────────────────────────────────────────
+#
+# Verus REQUIRES every crate it processes to import verus_builtin via vstd.
+# Plain Rust that lacks `use vstd::prelude::*` + `verus! {}` is rejected with:
+#
+#   error: The verus_builtin crate was not imported.
+#
+# Therefore we use entry_mode = "lib": the runner renames the example's
+# src/lib.rs → src/__ts_inner.rs, then writes this harness as the new src/lib.rs.
+# The harness imports vstd and wraps everything in verus! {} so Verus is happy.
+# The original plain-Rust code lives in __ts_inner and is treated as external
+# (no spec needed); Verus still type-checks it.
+#
+# ── Why NOT cargo-verus ───────────────────────────────────────────────────────
+#
+# cargo-verus (the cargo subcommand) tries to re-compile vstd from crates.io
+# through the verus binary as RUSTC_WRAPPER.  As of the 0.2026.05.03 release
+# binary, this panics with:
+#
+#   thread 'rustc' panicked at rust_verify/src/erase.rs:405:80:
+#   called `Option::unwrap()` on a `None` value
+#
+# This is a binary/crates-io-vstd version mismatch that the upstream has not
+# yet resolved.  The standalone `verus` binary, by contrast, bundles vstd
+# internally and works correctly.
+#
+# ── No extra_cargo_deps needed ───────────────────────────────────────────────
+#
+# The verus binary bundles vstd; it does NOT use Cargo to resolve vstd.
+# We invoke `verus src/lib.rs` directly (not cargo-verus), so no Cargo.toml
+# patch is required.

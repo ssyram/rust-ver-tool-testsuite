@@ -1,0 +1,9 @@
+// VeriFast harness placeholder — intentionally minimal.
+//
+// VeriFast is invoked directly on src/lib.rs (not via cargo), so this file
+// (written to src/bin/__ts_harness.rs by the runner) is never fed to verifast.
+// It exists only to satisfy the framework's harness-file contract.
+//
+// entry_fn  = {{ entry_fn }}
+// crate     = {{ target_crate_name }}
+fn main() {}

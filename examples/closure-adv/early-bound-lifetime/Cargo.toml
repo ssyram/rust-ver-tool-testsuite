@@ -1,0 +1,7 @@
+[package]
+name = "closure_adv_early_bound_lifetime"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

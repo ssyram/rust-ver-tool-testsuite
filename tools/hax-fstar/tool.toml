@@ -1,0 +1,12 @@
+# 按"不允许 partial"精神：cargo hax exit 0 必要；额外 grep 产物 silent marker 抓
+# cargo hax exit 0 但产物含 failure 的 silent partial 路径。
+command = [
+  "sh", "-c",
+  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into fstar; rc=$?; if [ $rc -eq 0 ]; then if grep -rqE 'Rust_primitives\\.Hax\\.failure|failure \\(\\(' proofs/fstar/extraction/ 2>/dev/null; then echo '[hax-fstar-oracle] FAIL: cargo hax exit 0 but product contains failure marker (silent partial translation)' >&2; rc=1; fi; fi; exit $rc"
+]
+timeout_secs    = 300
+version_command = [
+  "env",
+  "HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN}",
+  "cargo", "+nightly-2025-11-08", "hax", "--version"
+]

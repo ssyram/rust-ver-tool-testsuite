@@ -1,0 +1,21 @@
+// entry_mode = "lib": this file replaces the example's src/lib.rs.
+// The original lib has been renamed to src/__ts_inner.rs by the runner.
+//
+// We put `mod __ts_inner` *inside* `verus! {}` so Verus actually processes the
+// example's Rust through its own front-end (parse + macro elaboration + type
+// check + lifetime check). If `mod` is left outside, Verus passes the inner
+// to stock rustc and the SUCCESS signal degenerates to "rustc parsed it" —
+// indistinguishable from cargo-check. The point of having Verus in the matrix
+// is to exercise its Rust-feature coverage, not its rustc fork.
+use vstd::prelude::*;
+
+verus! {
+    mod __ts_inner;
+    pub use __ts_inner::*;
+
+    #[allow(dead_code)]
+    #[verifier::external]
+    fn __ts_invoke() {
+        __ts_inner::{{ entry_fn }}();
+    }
+}

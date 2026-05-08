@@ -1,0 +1,12 @@
+[package]
+name = "num_complex_ops"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+num-complex = "0.4"
+num-bigint = "0.4"
+num-traits = "0.2"

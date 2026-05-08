@@ -1,8 +1,36 @@
 command = [
   "env",
-  "PATH=/opt/homebrew/opt/openjdk/bin:/Users/ssyram/.cargo/bin:/usr/bin:/bin",
+  "JAVA_HOME=${TS_PRUSTI_JAVA_HOME}",
+  "PATH=${TS_PRUSTI_RUST_TOOLCHAIN_DIR}/bin:${TS_PRUSTI_JAVA_HOME}/bin:/usr/bin:/bin",
+  "CARGO=${TS_PRUSTI_RUST_TOOLCHAIN_DIR}/bin/cargo",
+  "RUSTC=${TS_PRUSTI_RUSTC}",
   "RUSTUP_TOOLCHAIN=nightly-2023-08-15-x86_64-apple-darwin",
+  "RUST_SYSROOT=${TS_PRUSTI_RUST_TOOLCHAIN_DIR}",
+  "PRUSTI_QUIET=false",
+  # Front-end-only run: encoder MUST run (so we observe MIR -> Viper acceptance),
+  # but Silicon SMT MUST NOT run (a SAT/UNSAT result is not what this testsuite
+  # screens for). See architecture.md "front-end support observation" principle.
+  #
+  # Mechanism (verified against prusti-utils/src/config.rs and
+  # prusti-server/src/process_verification.rs at commit a0681ee):
+  #   - PRUSTI_NO_VERIFY=false    -> verify(env, def_spec) is invoked, so
+  #                                  Encoder::process_encoding_queue runs over
+  #                                  every fn item collected by
+  #                                  CollectPrustiSpecVisitor (i.e. all fns,
+  #                                  no #[ensures] / use prusti_contracts needed)
+  #   - PRUSTI_DUMP_VIPER_PROGRAM -> after encoding, the resulting Viper program
+  #                                  is written to <log_dir>/viper_program/*.vpr
+  #   - PRUSTI_PRINT_HASH         -> process_verification_request returns
+  #                                  Success right after the dump and BEFORE
+  #                                  new_viper_verifier(), so no Silicon/Z3
+  #                                  process is ever spawned.
+  # Strict-mode rejection signal: exit != 0 with stderr containing
+  # "[Prusti: unsupported feature]" or "[Prusti: internal error]" markers.
+  "PRUSTI_NO_VERIFY=false",
+  "PRUSTI_DUMP_VIPER_PROGRAM=true",
+  "PRUSTI_PRINT_HASH=true",
   "arch", "-x86_64",
-  "/tmp/ts-tools-install/prusti/cargo-prusti"
+  "${TS_CARGO_PRUSTI}"
 ]
 timeout_secs = 900
+version_command = ["sh", "-c", "env JAVA_HOME=${TS_PRUSTI_JAVA_HOME} PATH=${TS_PRUSTI_RUST_TOOLCHAIN_DIR}/bin:${TS_PRUSTI_JAVA_HOME}/bin:/usr/bin:/bin RUSTUP_TOOLCHAIN=nightly-2023-08-15-x86_64-apple-darwin arch -x86_64 ${TS_PRUSTI_RUSTC} --version 2>&1 | grep -E '(Prusti|rustc)' | head -5"]

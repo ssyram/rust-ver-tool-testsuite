@@ -1,0 +1,51 @@
+# soteria-rust tool configuration
+# Binary: soteria-rust (OCaml/opam-installed, not a cargo subcommand)
+# opam switch: soteria-install (OCaml 5.4.0)
+# git commit hash: 3c21278187c60c99418fe2dabb03710ce4102896  (2026-05-07)
+#
+# Obol frontend (Rust → ULLBC translator):
+#   Built from https://github.com/soteria-tools/obol at ddea5ca5da4c07301584f47f05ea8615fc365b41
+#   Binary: ${TS_SOTERIA_BIN_DIR}/obol
+#
+# Runtime requirement: OPAM switch soteria-install must be active, so that
+#   soteria-rust binary is in PATH. The command embeds eval $(opam env ...) inline.
+#   Obol binary directory (${TS_SOTERIA_BIN_DIR} or wherever it was installed) must be in PATH.
+#
+# entry_mode = "lib": runner renames src/lib.rs → src/__ts_inner.rs, then writes
+#   this harness as src/lib.rs. The harness re-exports __ts_inner via mod and
+#   adds a fn main() that calls the target entry function.
+#   Command passes src/lib.rs directly to soteria-rust (single-file mode).
+#
+# Exit code semantics (from soteria-rust exec --help):
+#   0  = success (no bugs, no errors found)
+#   1  = failure (bug or error found — maps to FAILED)
+#   2  = crash caused by soteria-rust internal (maps to FAILED)
+#   3  = crash caused by Charon frontend (maps to FAILED)
+# Only exit 0 → SUCCESS; everything else → FAILED.  This is the default runner
+# behaviour (success() == exit 0), so no special handling needed.
+#
+# Fuel flags: --step-fuel=N and --branch-fuel=N bound symbolic execution depth.
+# For front-end coverage screening (this testsuite's purpose) we keep defaults
+# (infinite) because the target functions are trivially small; compilation is
+# the expensive part (~0.1–5s) and is unavoidable.
+#
+# Known limitations (see README for details):
+#   - std HashMap / collections can produce false-positive dangling pointer reports
+#   - Standalone .rs file has no Cargo.toml; edition defaults to Rust 2015 unless
+#     --rustc=--edition=2021 is passed (included in command below)
+#   - External crate dependencies are not supported (single-file mode only resolves std)
+#   - soteria-rust has no stable release; locked to commit hash above
+
+command = [
+    "sh", "-c",
+    "eval $(opam env --switch=soteria-install) && export PATH=$PATH:${TS_SOTERIA_BIN_DIR} && soteria-rust exec --rustc=--edition=2021 src/lib.rs"
+]
+
+entry_mode = "lib"
+
+timeout_secs = 120
+
+version_command = [
+    "sh", "-c",
+    "eval $(opam env --switch=soteria-install) && export PATH=$PATH:${TS_SOTERIA_BIN_DIR} && soteria-rust exec --help 2>&1 | head -1"
+]
