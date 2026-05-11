@@ -1,0 +1,54 @@
+# rocq-of-rust-typecheck (tier-1 typecheck)
+#
+# Wraps `tools/rocq-of-rust` (tier-0 frontend acceptance) with an extra
+# Rocq typecheck stage: coqc compiles the produced .v against the ror
+# RocqOfRust runtime library. Tier-1 ⇒ tier-0 typecheck-strict (gate 7-9
+# stricter than tier-0 only).
+#
+# Pipeline:
+#   src/lib.rs  ──[rocq-of-rust translate]──>  rocq_translation/.../lib.v
+#               ──[coqc -R <runtime> RocqOfRust]──>  lib.vo
+#
+# Oracle:
+#   Gates 1-6 mirror tools/rocq-of-rust (exit 0, .v exists, > 200 bytes,
+#   no failure marker, entry_fn appears as Definition).
+#   Gates 7-9 are new: coqc exit 0 + .vo present + no stderr "Error".
+#
+# Runtime bootstrap: wrapper auto-builds the 9 core ror runtime .v files
+# (M / RocqOfRust / RecordUpdate / lib/lib / lib/simulate/lib /
+# links/M / links/RocqOfRust / simulate/M / simulate/RocqOfRust) once
+# per fresh runtime tree. Subsequent invocations skip the rebuild.
+# Per docs/research/ror-runnable-deep-dive-2026-05-11.md §4.1 these
+# are the tier-1 dependency closure (3 minutes from scratch on M5;
+# pre-built in ROR_RUNTIME_PATH for routine runs).
+#
+# Env contract (TS_* names sourced from .env; runner expands ${TS_...} and
+# strips TS_ before spawn — we re-export under non-TS names so the
+# wrapper script sees them):
+#   TS_ROCQ_OF_RUST_BIN                 — rocq-of-rust binary path (cargo install)
+#   TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT   — nightly-2024-12-07 sysroot (shared with tools/rocq-of-rust)
+#   TS_ROR_TYPECHECK_SWITCH             — opam switch name (default "ror-test")
+#   TS_ROR_RUNTIME_PATH                 — abspath to RocqOfRust runtime dir
+#
+# entry_mode defaults to "bin" (matches tools/rocq-of-rust). The harness is
+# rendered to src/bin/__ts_harness.rs but is irrelevant — rocq-of-rust only
+# reads src/lib.rs.
+#
+# timeout: 180 s ≈ rocq-of-rust (typically < 5 s) + coqc on a single ror
+# product (< 1 s after runtime pre-built; first-call bootstrap adds ~3 s).
+# Slack accommodates large products / cold caches.
+
+command = [
+    "env",
+    "ROCQ_OF_RUST_TOOLCHAIN_SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT}",
+    "ROR_TYPECHECK_SWITCH=${TS_ROR_TYPECHECK_SWITCH}",
+    "ROR_RUNTIME_PATH=${TS_ROR_RUNTIME_PATH}",
+    "${TS_PROJECT_ROOT}/tools/rocq-of-rust-typecheck/rocq-of-rust-typecheck-wrapper.sh"
+]
+
+timeout_secs = 180
+
+version_command = [
+    "sh", "-c",
+    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT}; export DYLD_LIBRARY_PATH=$SYSROOT/lib; export PATH=$SYSROOT/bin:$PATH; echo \"rocq-of-rust: $(rocq-of-rust --version 2>&1 | tail -1)\"; eval \"$(opam env --switch=${TS_ROR_TYPECHECK_SWITCH} --set-switch 2>/dev/null)\"; echo \"coqc: $(coqc --version 2>&1 | head -1)\""
+]
