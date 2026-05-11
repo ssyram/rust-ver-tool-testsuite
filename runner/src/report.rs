@@ -89,7 +89,22 @@ pub fn classify_external_fault(stderr: &str, stdout: &str, _exit: Option<i32>) -
     //    `extra_cargo_deps` show up as unresolved imports. The entry itself
     //    is legal Rust (cargo-check passes); the tool just never saw the
     //    deps. Audit §4.2 — 101 FPs.
+    //
+    //    R3 (2026-05-11): extend to also capture E0433 ("failed to resolve" /
+    //    "undeclared" / "cannot find module or crate"). Both E0432 and E0433
+    //    are dependency-resolution failures triggered when the tool's single-
+    //    file pipeline skips vendored crates declared via `extra_cargo_deps`.
+    //    cargo-check SUCCESS on the same entry is the calibration premise
+    //    (rules out user path bugs). See
+    //    docs/fixes/audit-v5-cc-counter-challenge-2026-05-11.md §3.1.2.
     if contains_either("error[E0432]: unresolved import") {
+        return Some("dependency_resolution");
+    }
+    if contains_either("error[E0433]")
+        && (contains_either("failed to resolve")
+            || contains_either("undeclared")
+            || contains_either("cannot find module or crate"))
+    {
         return Some("dependency_resolution");
     }
     // 3. tool ships an old cargo (e.g. prusti 0.1.0 → cargo from 2023-08)
@@ -116,6 +131,26 @@ pub fn classify_external_fault(stderr: &str, stdout: &str, _exit: Option<i32>) -
     //    or `[Prusti: internal error]`, never `JavaException`).
     if contains_either("Result::unwrap()") && contains_either("JavaException") {
         return Some("environment_corruption");
+    }
+    // 6. rustc edition pipeline propagation. Tools that drive rustc directly
+    //    (verus / verifast / soteria / rocq-of-rust*) without forwarding
+    //    `--edition` from the entry's Cargo.toml end up running under the
+    //    default Rust 2015 edition. Entries that legitimately declare
+    //    `edition = "2021"` or `"2024"` then trip rustc's edition gate (e.g.
+    //    E0670 for `async fn`, or "let chains are only allowed in Rust 2024
+    //    or later"). cargo-check on the same entry is SUCCESS, so the entry
+    //    is legal Rust — the failure is purely the tool's pipeline dropping
+    //    the edition flag. Two-signal pattern: an edition-gated rustc error
+    //    keyword (E0670 / "let chains") AND an edition-version phrase
+    //    ("Rust 2015" / "Rust 2021" / "Rust 2024" / "only allowed"). See
+    //    docs/fixes/audit-v5-cc-counter-challenge-2026-05-11.md §3.1.1.
+    if (contains_either("E0670") || contains_either("let chains"))
+        && (contains_either("Rust 2015")
+            || contains_either("Rust 2021")
+            || contains_either("Rust 2024")
+            || contains_either("only allowed"))
+    {
+        return Some("edition_pipeline_propagation");
     }
     None
 }
