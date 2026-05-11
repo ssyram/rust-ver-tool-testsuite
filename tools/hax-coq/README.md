@@ -23,20 +23,20 @@ Coq backend 是 hax 中 reject phase 最多的（9 个：`Reject.Unsafe`、`RawO
 
 ### SUCCESS 信号（严格反映前端特性支持范围）
 
-为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = cargo hax exit 0 **且** 产物 grep 不命中 `failure ((` / `please implement the method`**。任何 partial → FAILED。
+为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = cargo hax exit 0 **且** 产物 grep 不命中 `failure ((` / `please implement the method` **且** entry_fn 在 .v 中有定义**。任何 partial → FAILED。
 
-**partial 暴露机制（双轨）**：
+**partial 暴露机制（三轨）**：
 1. cargo hax exit 1 = engine emit Diagnostic
-2. silent path：`engine/backends/coq/coq/coq_backend.ml:137` 的 `default_string_for "TODO: please implement the method..."` 是**纯文本输出，不发 Diagnostic**——cargo hax 仍 exit 0 但产物含字面字符串 → grep 抓
+2. silent path A：`engine/backends/coq/coq/coq_backend.ml:137` 的 `default_string_for "TODO: please implement the method..."` 是**纯文本输出，不发 Diagnostic**——cargo hax 仍 exit 0 但产物含字面字符串 → grep 抓
+3. **NEW (2026-05-11)** silent path B：`engine/backends/coq/coq/coq_backend.ml:588 method item'_NotImplementedYet = string "(* NotImplementedYet *)"` —— 当 hax-engine 在 AST 遇到 `NotImplementedYet` 类型的 item kind，把整个 item 渲染为单行 `(* NotImplementedYet *)` comment，**不写 `Definition`**。但该 marker 与每个 .v 的 boilerplate header 字面相同，不能直接 grep marker（会全 corpus 误报）。改抓 entry_fn 定义存在性：grep `^\s*(Definition|Fixpoint|Lemma|Equations|Theorem|Program Definition)\s+<entry_fn>\b` 在 .v 中命中 → SUCCESS；不命中 → FAILED。覆盖 Coq backend 三个 `CoqNotation` 分支（coq_backend.ml:454 lemma / :518 fixpoint / :540 definition）+ 容忍 Equations / Theorem / Program Definition 等上游可能引入的 keyword
 
-**形式严格性 — 0 误报（不冤枉能力）**：⚠️ 实测验证 0 误报，但**不可形式证明**。实测验证：hax-coq **不翻译 Rust doc comment**（与 hax-lean 不同），所以注释里的 `please implement` 不会出现在 .v 产物；用户合法代码极难写 `failure ((` 双括号字面。但不能形式排除未来上游修改翻译规则后的边角情形
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 设计层论证 0 误报。规则 (1)(2) 同前；规则 (3) 的反误报：hax-coq 对 Rust `fn` 项必经过 coq_backend.ml:454-540 三个 CoqNotation 分支之一（`is_lemma` / `is_rec` / else），渲染为 `Definition` / `Fixpoint` / `Lemma` 之一——合法翻译的 entry_fn 必有这三个 keyword 的定义。双向实测验证 5 类 case（Definition / Fixpoint / Lemma / 嵌套 module / missing），见 [`docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`](../../docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md) §2.3
 
-**形式严格性 — 0 漏报（不高估能力）**：⚠️ 实测验证 0 漏报，但**不可形式证明**。grep `failure \(\(|please implement the method` 抓 hax-coq 已知 silent path（`engine/backends/coq/coq/coq_backend.ml:137` 的 `default_string_for` 纯文本输出）
+**形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层封堵。规则 (1)(2) 同前；规则 (3) 抓 silent path B 的 `(* NotImplementedYet *)` item-level skip——这是 audit-2 §3.3 识别出的剩余 silent path，本规则用 entry_fn 定义存在性间接抓（绕开 boilerplate marker 与 item-level marker 同字面的尴尬）
 
 **漏报盲点**：
-- `(* NotImplementedYet *)` 是每个 .v 文件的 boilerplate header，**不**算失败信号
-- hax engine 完全 skip item（实测 0 现象）
-- 上游引入新 silent path 的可能
+- `(* NotImplementedYet *)` 是每个 .v 文件的 boilerplate header（**注**：第二轮规则不直接 grep 这个 marker，改抓 entry_fn 定义存在性以兼容 boilerplate）
+- hax engine 上游引入新 silent path（如 backend item kind 新增 `string "..."` 分支）—— 当前 coq_backend.ml:137 + :588 是已知 silent path
 
 ## 安装
 

@@ -3,9 +3,28 @@
 # （后者来自 engine/backends/coq/coq/coq_backend.ml:137 的 default_string_for，
 # 是纯文本输出**不发 Diagnostic**——cargo hax 会 exit 0，必须 grep 抓住）。
 # 注：`(* NotImplementedYet *)` 是每个 .v 文件的 boilerplate header，**不**算失败信号。
+#
+# 第二轮 oracle 漏报封堵（2026-05-11）追加：源码层 silent-skip-item 路径
+#   `backends/coq/coq/coq_backend.ml:588 method item'_NotImplementedYet = string "(* NotImplementedYet *)"`
+# 当 hax-engine 在 AST 遇到 NotImplementedYet 类型的 item kind 时，把整个 item
+# 渲染为单行 `(* NotImplementedYet *)` comment，**不写真 `Definition`/`Fixpoint`**。
+# 但 `(* NotImplementedYet *)` 与每个 .v 文件的 boilerplate header 字面相同，
+# 不能直接 grep 抓 marker（会全 corpus 误报）。改抓 entry_fn 的定义存在性：
+# 合法翻译的 fn 必有 `Definition <fn>` / `Fixpoint <fn>` / `Lemma <fn>` 之一
+# （coq_backend.ml:454,518,540 三个 CoqNotation 分支）。
+#
+# Coq backend 不使用 `Equations`（仅 hax-coq fork 可能扩展，本基线 commit
+# 30949eb 无），grep pattern 容忍 `Equations` 与 `Theorem`/`Program Definition`
+# 以防上游引入。
+#
+# runner expand_env 陷阱：与 hax-fstar / rocq-of-rust 同 —— `$TS_ENTRY_FN` 而非
+# `${TS_ENTRY_FN}`，避开 runner expand_env 提前展开。
+#
+# See: docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.3, §4.3
+#      docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md §2.3
 command = [
   "sh", "-c",
-  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into coq; rc=$?; if [ $rc -eq 0 ]; then if grep -rqE 'failure \\(\\(|please implement the method' proofs/coq/extraction/ 2>/dev/null; then echo '[hax-coq-oracle] FAIL: cargo hax exit 0 but product contains failure / TODO marker (silent partial translation)' >&2; rc=1; fi; fi; exit $rc"
+  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into coq; rc=$?; if [ $rc -eq 0 ]; then if grep -rqE 'failure \\(\\(|please implement the method' proofs/coq/extraction/ 2>/dev/null; then echo '[hax-coq-oracle] FAIL: cargo hax exit 0 but product contains failure / TODO marker (silent partial translation)' >&2; rc=1; elif [ -n \"$TS_ENTRY_FN\" ] && ! grep -rqE \"^[[:space:]]*(Definition|Fixpoint|Lemma|Equations|Theorem|Program[[:space:]]+Definition)[[:space:]]+$TS_ENTRY_FN[[:space:]]\" proofs/coq/extraction/ 2>/dev/null; then echo \"[hax-coq-oracle] FAIL: entry_fn '$TS_ENTRY_FN' missing from .v products (silent skip — coq_backend.ml:588 item'_NotImplementedYet path; see docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.3)\" >&2; rc=1; fi; fi; exit $rc"
 ]
 timeout_secs    = 600
 version_command = [

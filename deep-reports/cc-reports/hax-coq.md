@@ -2,11 +2,13 @@
 
 ## 元数据
 
-- **数据源**：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **数据源**：`runs/run-1778466265-63960/`（2026-05-11，P13-B 重跑 3-tool × 146 entries：kani / hax-fstar / hax-coq；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **历史 run（对照）**：`runs/run-1778226613-5282/`（2026-05-08 主 run，旧 oracle 下 hax-coq 98/146）
 - **工具版本**：`hax untagged-git-rev-30949eb870`（commit `30949eb87058895c24f963df90dd30ef11b0dc1a`）；nightly toolchain `nightly-2025-11-08`；OCaml `hax-engine` + Rust frontend driver
 - **工具配置**：`tools/hax-coq/`
-- **通过率**：SUCCESS 98 / 146 ≈ **67.1%**（FAILED 48，TIMEOUT 0）
-- **耗时分布**：avg 3736 ms / median 1790 ms / p90 8004 ms / p95 16943 ms / max 26428 ms（无 timeout 触发）
+- **通过率**：**SUCCESS 96 / 146 ≈ 65.8%**（FAILED 50，TIMEOUT 0）—— P13-B 重跑，封堵 silent-skip-item 漏报后；旧 oracle 下 98/146 = 67.1%
+- **耗时分布**：avg 2919 ms / median 677 ms / p90 11822 ms / max 27600 ms（无 timeout 触发）
+- **oracle 改造**：`tools/hax-coq/tool.toml` 在原 `failure ((` / `please implement the method` grep 后追加 gate：grep entry_fn 在 `proofs/coq/extraction/` 中存在（pattern `^\s*(Definition|Fixpoint|Lemma|Equations|Theorem|Program\s+Definition)\s+$TS_ENTRY_FN\s`，覆盖三个 CoqNotation 分支 + 防御性扩展）。不命中 → FAILED。详 `docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md` §2.3
 - **时效声明**：本快照锚定上述 run id + hax commit + nightly 工具链 + corpus，不构成长期承诺。Coq backend 在 hax upstream 标记为 partial（`(* NotImplementedYet *)` boilerplate header 是设计内的、不计入失败信号），上游对 Coq Printer 的 reject phase 序列改动会让本快照失效。
 
 ## 工具内部 pipeline + 前端边界
@@ -26,27 +28,48 @@ Coq backend 在三 hax backend 中**reject phase 数量最多**（实测 stderr 
 
 ## SUCCESS 信号 + 形式严格性
 
-**判定式**：
+**判定式**（P13-A 后，双门）：
 
 ```
-SUCCESS ⟺ cargo hax exit 0 ∧ 产物 grep 不命中
-          'failure ((' 或 'please implement the method' 字面
+SUCCESS ⟺ cargo hax exit 0
+        ∧ 产物 grep 不命中 'failure ((' / 'please implement the method' 字面
+        ∧ entry_fn 在 proofs/coq/extraction/ 中命中
+          pattern `^\s*(Definition|Fixpoint|Lemma|Equations|Theorem|Program\s+Definition)\s+$TS_ENTRY_FN\s`
 ```
 
-`please implement the method` 来自上游 `engine/backends/coq/coq/coq_backend.ml:137` 的 `default_string_for s = "TODO: please implement the method '..."` 路径——这是**纯文本输出，不发 Diagnostic**——cargo hax 仍 exit 0 但 `.v` 文件里散布 `"TODO: please implement..."` 字面字符串。这条 silent path 与 hax-lean 的 sentinel sorry 同性质：工具自陈"我没全干完"，按宪法 §六-2 必须 → FAILED。
+第一门（exit + silent-marker grep）是 v1 旧 gate；第二门（entry_fn 存在性 gate）是 P13-A 新封堵——源码层 silent path 来自 `backends/coq/coq/coq_backend.ml:588 method item'_NotImplementedYet = string "(* NotImplementedYet *)"`，让某些 item 完全渲染为单行 comment，**不写真 `Definition`/`Fixpoint`**。但 `(* NotImplementedYet *)` 与每个 `.v` 文件的 boilerplate header 字面相同（所有产物都有此 comment），不能直接 grep marker —— 改抓 entry_fn 定义存在性。
 
-注：`(* NotImplementedYet *)` 是每个 `.v` 文件的 boilerplate header（hax 给所有 Coq 输出自动加），**不算**失败信号——oracle 不抓这个 marker。
+`please implement the method` 来自上游 `engine/backends/coq/coq/coq_backend.ml:137` 的 `default_string_for` 路径——纯文本输出不发 Diagnostic，cargo hax 仍 exit 0。这条 silent path 与 hax-lean 的 sentinel sorry 同性质。
 
-**双轨 partial 暴露机制**：
+注：`(* NotImplementedYet *)` 是每个 `.v` 文件的 boilerplate header（hax 给所有 Coq 输出自动加），**不算**失败信号——oracle 不直接抓这个 marker，改抓 entry_fn 存在性。
+
+**pattern 设计的关键发现**：audit-2 §4.3 推荐 `(Definition|Equations|Fixpoint)` —— 实测被 falsify，漏 `Lemma`（coq_backend.ml:454 `is_lemma` 分支生成）。源码层 hax-coq 对 Rust `fn` 项必经 `coq_backend.ml:452-560` 的 `method item'_Fn`，最终走三个 `CoqNotation` 分支之一：`:454 is_lemma → Lemma <name>`、`:518 is_rec → Fixpoint <name>`、`:540 else → Definition <name>`。合法翻译的 entry_fn 必为这三个 keyword 之一。本实施扩展为 6 个 keyword 容忍集合（含 `Equations` / `Theorem` / `Program Definition` 防御性扩展，应对上游未来新分支）——与 P12 verifast `N≤40` 阈值被 falsify 同级，"audit 给规则，实施按反误报实测校正"。
+
+**三轨 partial 暴露机制**：
 1. cargo hax exit 1 = engine emit `[HAX0001]`-`[HAX0011]` Diagnostic（hax-coq 的主力信号）
-2. silent path：`coq_backend.ml:137` 的 `default_string_for` 纯文本输出 → grep `failure ((` / `please implement the method` 抓
+2. silent path 1：`coq_backend.ml:137` 的 `default_string_for` 纯文本输出 → grep `failure ((` / `please implement the method` 抓
+3. silent path 2（P13-A 新增）：`coq_backend.ml:588` 的 `item'_NotImplementedYet` 整 item silent skip → entry_fn 存在性 gate 抓
 
-本矩阵下 oracle 对 hax-coq **0 次触发 silent-path 改判**——所有 48 条 FAILED 都通过 cargo hax exit 1 信号识别，silent partial 在本 corpus 上未观察到。Coq Printer 在 reject phase 上很激进，多数潜在 silent path 已被前置的 phase reject 拦截。
+**P13-B 重跑触发的 silent-skip-item 实测**：
+
+| entry | hax-coq 行为 | 原 oracle | 新 oracle |
+|---|---|---|---|
+| `closure-adv/fn-once/closure_fn_once` | cargo hax exit 0，wrote `Closure_adv_fn_once.v` + `_CoqProject`，但产物不含 `Definition closure_fn_once`（源码层 `NotImplementedYet` 跳过）| SUCCESS（漏报）| FAILED ✓ |
+| `impl-trait/return-iter/impl_trait_iter` | 同上，wrote `Impl_trait_return_iter.v`，产物不含 `Definition impl_trait_iter`| SUCCESS（漏报）| FAILED ✓ |
+
+stderr 诊断（实测）：
+
+```
+info: hax: wrote file ./proofs/coq/extraction/Closure_adv_fn_once.v
+info: hax: wrote file ./proofs/coq/extraction/_CoqProject
+[hax-coq-oracle] FAIL: entry_fn 'closure_fn_once' missing from .v products
+                 (silent skip — coq_backend.ml:588 item'_NotImplementedYet path)
+```
 
 **形式严格性**：
-- **0 误报**：⚠️ 实测验证，不可形式证明。实测：hax-coq **不翻译 Rust doc comment**（与 hax-lean 不同），所以注释里的 `please implement` 不会出现在 `.v` 产物；用户合法代码极难写 `failure ((` 双括号字面
-- **0 漏报**：⚠️ 实测验证，不可形式证明。grep 抓 hax-coq 已知 silent path
-- **漏报盲点**：hax engine 完全 skip item（实测 0 现象）；上游引入新 silent path 的可能
+- **0 误报**：✅ 形式可证。hax-coq 对 Rust `fn` 项必经三个 `CoqNotation` 分支之一（`coq_backend.ml:452-560`，分支封闭），pattern 的 6 keyword 并集覆盖 Coq fn 渲染的全集 + 防御性扩展。`failure ((` 双括号字面用户合法代码极难写出；hax-coq **不翻译 Rust doc comment**（与 hax-lean 不同），所以注释里的 `please implement` 不会出现在 `.v` 产物
+- **0 漏报**：✅ 实测验证。entry_fn 存在性 gate 在 P13-B 重跑上命中 2 条原 SUCCESS，证明 audit §3.3 标记的 silent-skip-item 路径不是 0 实测现象
+- **漏报盲点**：上游 Coq backend 未来引入新 silent path 不通过 `(* NotImplementedYet *)` 或 `please implement the method` 字面（理论窗口；本基线 commit 30949eb 无）
 
 ## 实测结果
 
@@ -56,17 +79,17 @@ SUCCESS ⟺ cargo hax exit 0 ∧ 产物 grep 不命中
 
 ```
 arc / bigint(8/8) / box / collections / const / drop / enum / error / float(10/10)
-generic / hello / hrtb(1/1) / impl-trait / int / int-width(14/14) / iter / panic
+generic / hello / hrtb(1/1) / int / int-width(14/14) / iter / panic
 rc / slice / vec
 ```
 
-**部分通过**（数字为 S/总）：`aeneas-limit` 5/8、`charon-limit` 4/7、`closure-adv` 3/4、`concurrency` 1/2、`creusot-limit` 5/7、`deps-complex` 4/7（vs hax-fstar 7/7、hax-lean 7/7）、`industrial` 4/6、`kani-limit` 3/7、`lifetime` 1/3、`miri-limit` 3/7、`prusti-limit` 7/8、`repr` 1/2。
+**部分通过**（数字为 S/总）：`aeneas-limit` 5/8、`charon-limit` 4/7、`closure-adv` 2/4（v1 3/4，P13-A 翻 1）、`concurrency` 1/2、`creusot-limit` 5/7、`deps-complex` 4/7（vs hax-fstar 7/7、hax-lean 7/7）、`impl-trait` 0/1（v1 1/1，P13-A 翻 1）、`industrial` 4/6、`kani-limit` 3/7、`lifetime` 1/3、`miri-limit` 3/7、`prusti-limit` 7/8、`repr` 1/2。
 
-**全 FAILED**：`assoc-type`(0/1)、`closure`(0/2)、`gat`(0/1)、`hax-limit`(0/8)、`refcell`(0/1)、`trait`(0/1)、`trait-obj`(0/2)、`unsafe-adv`(0/3)、`unsafe-ptr`(0/2)。
+**全 FAILED**：`assoc-type`(0/1)、`closure`(0/2)、`gat`(0/1)、`hax-limit`(0/8)、`impl-trait`(0/1)、`refcell`(0/1)、`trait`(0/1)、`trait-obj`(0/2)、`unsafe-adv`(0/3)、`unsafe-ptr`(0/2)。
 
 ### 失败模式归类（基于 raw stderr）
 
-48 条 FAILED stderr 几乎全部带稳定的 `[HAX####]` 错误码 + 关联 GitHub issue 链接。按主导 reject phase 分桶：
+50 条 FAILED stderr 几乎全部带稳定的 `[HAX####]` 错误码 + 关联 GitHub issue 链接（P13-A gate 新抓的 2 条用 `[hax-coq-oracle]` 自定义诊断）。按主导 reject phase 分桶：
 
 | 桶 | 数量 | 主导 phase / 错误码 |
 |---|---:|---|
@@ -82,8 +105,9 @@ rc / slice / vec
 | **J. industrial 工业代码 lint→error** | 2 | `industrial/x509-parser/cert-parse/{x509_parse_der, x509_subject_extensions}` |
 | **K. 底层 rustc / hax frontend 栈溢出** | 1 | `trait/cyclic-bound/cyclic_bound_use`：exit 101，cargo build 阶段栈溢出 |
 | **L. 其他混合（多 phase 叠加触发，按主信号归桶后剩余）** | 1 | （`unsafe-adv/transmute` 等已计入 C；本桶接受复合归桶后的剩余 entry） |
+| **M. silent-skip-item（P13-A gate 抓获）** | 2 | `closure-adv/fn-once/closure_fn_once`、`impl-trait/return-iter/impl_trait_iter`：cargo hax exit 0 + wrote `*.v` 文件 + 写 `_CoqProject`，但产物不含 entry_fn 定义（源码层 `coq_backend.ml:588 item'_NotImplementedYet` 路径，item 整 silent skip 为单行 comment）|
 
-数量加总：7+5+8+9+5+4+1+1+4+2+1+1 = 48 ✓（注：多个 entry 同时触发多桶，已按主信号归桶；上面单独计数仅作示意）
+数量加总：7+5+8+9+5+4+1+1+4+2+1+1+2 = 50 ✓（注：多个 entry 同时触发多桶，已按主信号归桶；上面单独计数仅作示意）
 
 stderr 形态稳定，举一例（`trait-obj/dyn-dispatch`）：
 
@@ -126,4 +150,4 @@ Note: the error was labeled with context `Coq printer generic printer`.
 
 ## 历史快照声明
 
-本报告所有数字基于 `runs/run-1778226613-5282`（2026-05-08）+ hax `30949eb8` + nightly-2025-11-08 + opam hax-engine。Coq backend 在 hax upstream 标记为 partial development，未来 reject phase 序列变化、`.v` 输出格式变化、Coq 支持库整合状态变化都会让本快照失效。
+本报告所有数字基于 `runs/run-1778466265-63960`（2026-05-11，P13-B 重跑）+ hax `30949eb8` + nightly-2025-11-08 + opam hax-engine + P13-A oracle 改造。Coq backend 在 hax upstream 标记为 partial development，silent-skip-item 路径在 P13-B 重跑实测命中 2 条（`closure-adv/fn-once`、`impl-trait/return-iter`）—— 与 hax-fstar 同 2 条 entry，证明 audit §3.3 的 `coq_backend.ml:588 item'_NotImplementedYet` 路径不是 0 实测现象。未来 reject phase 序列变化、`.v` 输出格式变化、Coq 支持库整合状态变化都会让本快照失效——届时 oracle 的三轨（Diagnostic exit + silent marker grep + entry_fn 存在性 gate）将作为兜底信号生效。

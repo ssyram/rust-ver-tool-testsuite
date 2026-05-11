@@ -23,19 +23,20 @@ F* backend 在 hax 里有 6 个 reject phase（介于 lean 4 与 coq 9 之间）
 
 ### SUCCESS 信号（严格反映前端特性支持范围）
 
-为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = cargo hax exit 0 **且** 产物 grep 不命中 `Rust_primitives.Hax.failure`**。任何 partial → FAILED。
+为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = cargo hax exit 0 **且** 产物 grep 不命中 `Rust_primitives.Hax.failure` **且** entry_fn 在 .fst 中有定义**。任何 partial → FAILED。
 
 **partial 暴露机制**：
 1. cargo hax exit 1 = engine emit Diagnostic（实测 hax-fstar 在 unsupported entry 上稳定 exit 1，是主要信号）
 2. 产物 grep `Rust_primitives.Hax.failure` —— 防御性检测，抓 `hax_failure_expr` 渲染为 fstar literal `Rust_primitives.Hax.failure "..."` 的潜在 silent path
+3. **NEW (2026-05-11)**：entry_fn `let` / `let rec` / `and` 字面在 .fst 产物中存在性 check。封堵 `backends/fstar/fstar_backend.ml:1771 | Use _ | NotImplementedYet -> []` 的 silent-skip-item 路径——该路径让 hax 把某些 item 完全跳过（既不写产物也不发 Diagnostic），cargo hax 仍 exit 0。grep pattern `^(let\s+(rec\s+)?|and\s+)<entry_fn>\b` 覆盖三种 F* fn 形态：plain `let foo`（NoLetQualifier，fstar_backend.ml:1112）、`let rec foo`（mutual rec 第一个，line 1923）、`and foo`（mutual rec 后续，line 1924）
 
-**形式严格性 — 0 误报（不冤枉能力）**：⚠️ 实测验证 0 误报，但**不可形式证明**。grep 模式 `Rust_primitives.Hax.failure` 是 hax 内部完整 fstar literal 路径，用户合法代码极难写出该字面字符串——但不能形式排除。实测：用户 doc comment + 局部变量 `let failure: i32 = 5;` 都不触发 FAILED
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 设计层论证 0 误报。规则 (1)(2) 同前；规则 (3) 的反误报：hax-fstar 对 Rust `fn` 项统一用 `TopLevelLet (NoLetQualifier, ...)` 渲染（fstar_backend.ml:1112，单一入口），合法翻译的 entry_fn 必为 `let <fn>` / `let rec <fn>` / `and <fn>` 之一——双向实测验证四种 case（plain / let rec / 'and' mutual rec / missing），见 [`docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`](../../docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md) §2.2
 
-**形式严格性 — 0 漏报（不高估能力）**：⚠️ 实测验证 0 漏报，但**不可形式证明**。hax-fstar 后端较成熟，几乎不走 silent path——unsupported 都让 cargo hax exit 1（实测 hax-fstar 在 unsupported entry 上稳定 exit 1）。grep `Rust_primitives.Hax.failure` 是防御性检测
+**形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层封堵。规则 (1)(2) 是 exit 信号 + 已知 silent literal 字面 grep；规则 (3) 抓的 silent-skip-item 是 fstar_backend.ml:1771 的唯一 silent path（line 506-512 的 `pexpr` SpanFreeError catch 不构成 silent path —— `SpanFreeError.raise` 会先 `report` Diagnostic 触发 exit ≠ 0，详见 audit-2 §3.2）
 
 **漏报盲点**：
-- hax engine 完全 skip item（实测 0 现象）—— 同 hax-lean
-- 上游引入新 silent path 的可能（实测无）
+- hax engine 上游引入新 silent path（如 backend item kind 新增 `-> []` 分支）—— 当前 fstar_backend.ml:1771 是唯一已知 silent path
+- F* fn 渲染未来引入新 keyword（如 `unfold let` / `inline_for_extraction let` 等修饰）—— 实测当前 hax-fstar 未使用，未来上游可能引入
 
 ## 安装
 

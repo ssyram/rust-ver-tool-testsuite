@@ -1,9 +1,12 @@
-# 内部综评 2026-05-08（暴论版）
+# 内部综评 2026-05-08（暴论版；triple-run 数据增订 2026-05-11）
+
+> **triple-run 设计**：本报告整合 3 次实测 run 的数字——v1 主体 16 工具（`run-1778226613-5282`，2026-05-08）+ v2 三工具 verifast / prusti / rocq-of-rust（`run-1778238662-69805`，P12-B 重跑）+ v3 三工具 kani / hax-fstar / hax-coq（`run-1778466265-63960`，2026-05-11 P13-B 重跑）。三次 run 同 host 同 corpus 同工具 binary，只 oracle 改造。整合数字以最新 oracle 为准。triple-run 覆盖报告见 `docs/test-reports/feature-coverage-2026-05-11-strict-oracle-v3.md`。
 
 ## 锚点（全文不再重复）
 
-- **run id**（16 工具数据）：`run-1778226613-5282`，时间窗 2026-05-08T07:50:13Z – 08:16:08Z UTC（≈26 分钟）
-- **P12-B 重跑 run**（3 工具：verifast / prusti / rocq-of-rust）：`run-1778238662-69805`，2026-05-08T11:11:02Z – 11:13:01Z UTC（119s wall），oracle 漏报封堵后重测；详见 `docs/fixes/oracle-leak-rules-implementation-2026-05-08.md`
+- **v1 run id**（13 工具未变数据）：`run-1778226613-5282`，时间窗 2026-05-08T07:50:13Z – 08:16:08Z UTC（≈26 分钟）
+- **v2 P12-B 重跑 run**（3 工具：verifast / prusti / rocq-of-rust）：`run-1778238662-69805`，2026-05-08T11:11:02Z – 11:13:01Z UTC（119s wall），oracle 漏报封堵后重测；详见 `docs/fixes/oracle-leak-rules-implementation-2026-05-08.md`
+- **v3 P13-B 重跑 run**（3 工具：kani / hax-fstar / hax-coq）：`run-1778466265-63960`，2026-05-11T02:24:25Z – 02:27:00Z UTC（155s wall），第二轮 oracle 漏报封堵；详见 `docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`
 - **corpus**：146 entries × 19 工具 = 2774 任务，0 UNKNOWN，0 TIMEOUT
 - **host**：Apple M5 / macOS aarch64 / 24 GB / 10 cpu / parallelism 10
 - **19 工具版本**（自 results.json metadata 抓）：
@@ -33,7 +36,7 @@
 1. **经 P12 封堵证实：verifast 原 79.5% 中 71pp 是空过**。strict-oracle-v2（verbose user-file grep wrapper）下 P12-B 重跑跌到 **8.2%（12/146）**。原 116 SUCCESS 里 104 条被 wrapper 翻为 exit 2（vacuous pass，verbose 输出 0 行命中 `src/lib.rs(`，stdout 末行仍是 `0 errors found (37 statements verified)` 来自 verifast 自家 prelude）。残留 12 个 SUCCESS 也都不写用户 spec——它们是 verifast 为用户声明的 struct/trait/enum 自动生成 `is_Send / init_ref_padding / open_ref_init_perm` 等结构谓词后的"自动生成谓词验证完成"，**仍非"用户 spec 验证完成"**。这条暴论从假说升级为实测结论。
 2. **aeneas 4 个 backend 不是同分**——前一份草稿示例里写"4 backend 同分 59%"是错的：`coq/fstar/lean` 三个 byte-identical 87/146（59.6%），但 **`hol4` 跌到 51/146（34.9%）**，单一根因是 `Extract.ml:3166 extract_trait_decl` 在 HOL4 backend 上对 trait decl 调 `Option.get None`，**LLBC 含任意 trait declaration（包括 core::fmt::Display、FnOnce、Iterator）就 panic**。这不是数据噪声，是 hol4 printer 的硬天花板。
 3. **prusti 38.4% 是真前端接受率，不是它弱**——上一份配置（`PRUSTI_NO_VERIFY=true`）下勉强 67%，但那是 cargo-check 等价路径（encoder 根本不跑），违反反作弊。新配置 `NO_VERIFY=false ∧ DUMP_VIPER ∧ PRINT_HASH` 让 encoder 真跑 + Z3 永不启动，38.4% 才是 MIR → Viper VIR encoder 的真实接受率。**降的 28pp 都是真触及 prusti encoder 边界的 entry**，不是吃亏。P12-A 在 `prusti-strict-wrapper.sh` 中追加 ".vpr 至少一个文件存在" 检查作为 commit-drift 防御层；P12-B 重跑数字 56/146 与封堵前完全一致，证实当前 commit 下 NEW config 已抓住所有 silent path，wrapper 是冗余防御不是新发现。
-4. **kani 98.6% / miri 97.3% 是地板天花板**。kani 的 2 个 FAILED 都是 vendor x509-parser 的 `#![deny(unstable_features, unused_qualifications)]` 与 kani 注入的 `#![feature(register_tool)]` 撞车——**没有一个 FAILED 是 GotoC codegen 边界**。miri 的 4 个 FAILED 全部是 corpus 故意撒的 unsupported（inline-asm / FFI / network isolation / uninit-memory），**这不叫 corpus 没踩到，是 corpus 踩了 miri 自陈的所有边界都接住了**。
+4. **kani v1=98.6% 是虚高，P13-B 封堵后 93.2%（-5.5pp / -8 entries）**。kani 在 `--only-codegen` 路径上 codegen 完成 + emit "Found the following unsupported constructs:" warning（自陈 "Verification will fail if one or more of these constructs is reachable"）仍 exit 0，按 §六-2 反作弊精神这是 partial codegen 漏报。audit-2 §3.1 从 raw stdout 上 grep 5 markers（`TerminatorKind::InlineAsm` / `simd_cast` / `catch_unwind` / `ptr_mask` / `C string literal`）找出 8 个 SUCCESS 命中，P13-B 重跑确证全部翻 FAILED：`charon-limit/inline-asm/nop_via_asm`、`concurrency/thread-mutex/thread_mutex_join`、`deps-complex/{bigint,chrono,collections}-serde`、`deps-complex/error-chain`、`kani-limit/stack-unwinding`、`miri-limit/thread-interleaving-partial`。剩余 2 条 FAILED（v1 同前）是 vendor x509-parser 的 `#![deny(unstable_features, unused_qualifications)]` × kani 注入的 `#![feature(register_tool)]` 撞车。miri 97.3% 不变：4 个 FAILED 全部是 corpus 故意撒的 unsupported（inline-asm / FFI / network isolation / uninit-memory）。
 5. **charon-mono 94.5% / charon-poly 95.2% 不是命运攸关的 0.7pp**——poly 与 mono 在 142 个 entry 上一致，**剩 4 个 entry 行为不互含**：mono 单态化展开 `Box<dyn Display/Any>` 时在 vtable drop preshim 索引计算 panic（`translate_trait_objects.rs:1707`），poly 不展开 vtable 所以躲过；反过来 poly 在 std TLS 内部 polymorphic 路径踩 unsupported，mono 单态化后避开。**两边 FAILED 集合对称差 5 个 entry，互不蕴含**。
 6. **kmir 31.5%、verus 34.9%、aeneas-hol4 34.9%、prusti 38.4% — 这四个垫底者根因各不同**。kmir 是 stable-mir-json schema 漂移 + K rule 缺失（K-stuck 56 条）；verus 是 vstd spec 边界 + verus-driver 内部 panic（A 桶 29 + D 桶 12 = 41 条不在语言子集层面）；aeneas-hol4 是 hol4 printer Option.get None；prusti 是 encoder MIR→Viper 真边界。**把它们并列在一张表上比较是地狱级的方法学错误**。
 7. **工业三件套（rsa / sha2 / x509-parser）才是真分水岭**——cargo-check 6/6 全过，miri 6/6 全过，kani 4/6（x509 上撞 kani 注入 lint）；charon×2 6/6 全过；aeneas-{coq,fstar,lean} 在 x509 上过、在 rsa 和 sha2 上挂在 `Region ids should not be visited directly`（`interp/Interp.ml:550`）；creusot 在 x509 上过、在 rsa/sha2 上挂在 byte-string `b"hello rsa"` 的 `Unsupported constant value: Scalar(allocN) of type &[u8; M]`；其余 12 个工具集体 0/6。**这 6 个 entry 把"自带 cargo 集成"和"单文件读 src/lib.rs"两类工具一刀切干净**。
@@ -97,12 +100,12 @@ unsafe：unsafe-ptr (2) / unsafe-adv (3)
 
 | 工具 | 通过率 | 切割点 |
 | --- | --- | --- |
-| kani | 98.6% (144/146) | `--only-codegen`（GotoC codegen，CBMC 后端不跑） |
+| kani | **93.2% (136/146)**（v3 P13-B；v1 98.6%）| `--only-codegen`（GotoC codegen，CBMC 后端不跑）+ wrapper 5-marker grep（P13-A 封堵 codegen stub 漏报）|
 | verus | 34.9% (51/146) | `--no-verify`（VIR 构造，AIR/Z3 不跑） |
 | prusti | 38.4% (56/146) | `NO_VERIFY=false ∧ DUMP_VIPER ∧ PRINT_HASH` + `.vpr` 存在性 check（P12-A 防御层；Viper encoder 真跑，Silicon 不启动） |
 | creusot | 72.6% (106/146) | binary 无 subcommand（Coma 翻译完成，Why3 不跑） |
 
-**辛辣观察一**：kani 的 98.6% 与其余三个的 34.9% / 38.4% / 72.6% 看起来惊天差距，**根因是切割点深度不同**——kani 的 GotoC codegen 几乎覆盖整个 stable Rust 输入面（除 inline-asm / FFI 之类），verus 的 VIR 构造要过严格的 mode/lifetime/vstd 三重 check，prusti 的 Viper encoder 要把 MIR borrow 翻成 Viper separation logic permission。**这不是"kani 比 verus 强 64pp"，是 kani 在它的前端边界上几乎无 reject 路径，verus 在它的前端边界上 reject 路径密集**。
+**辛辣观察一**：kani 的 v3 93.2% 与其余三个的 34.9% / 38.4% / 72.6% 仍是大差距，**根因是切割点深度不同**——kani 的 GotoC codegen 几乎覆盖整个 stable Rust 输入面（除 inline-asm / FFI / simd / catch_unwind / ptr_mask 之类），verus 的 VIR 构造要过严格的 mode/lifetime/vstd 三重 check，prusti 的 Viper encoder 要把 MIR borrow 翻成 Viper separation logic permission。**这不是"kani 比 verus 强 58pp"，是 kani 在它的前端边界上 reject 路径稀疏但有 8 条 stub 漏报曾被吞，verus 在它的前端边界上 reject 路径密集**。v1 98.6% 是被 stub 警告吞掉的虚高位（详暴论 4 + 7.2-bis）。
 
 **辛辣观察二**：creusot 72.6% 是这组的中位，表面强势——但 deps-complex 7 条只过 1 条（`chrono-bigint`），float 10 条只过 5 条（NaN 在 creusot_std 不支持），industrial 6 条只过 2 条（x509 上 rsa/sha2 byte-string 触发 `Unsupported constant value: Scalar(allocN) of type &[u8; M]`）。creusot 在普通 entry 上几乎都接住，**但凡进 serde derive 展开、float NaN spec、byte-string literal 三类，立刻全挂**。
 
@@ -155,14 +158,14 @@ unsafe：unsafe-ptr (2) / unsafe-adv (3)
 
 | 工具 | 通过率 |
 | --- | --- |
-| hax-fstar | 78.8% (115/146) |
-| **rocq-of-rust** | **76.0% (111/146)**（P12-B；旧 oracle 82.9% / 121/146） |
+| **hax-fstar** | **77.4% (113/146)**（v3 P13-B；v1 78.8% / 115/146）|
+| rocq-of-rust | 76.0% (111/146)（v2 P12-B；旧 oracle 82.9% / 121/146）|
 | hax-lean | 75.3% (110/146) |
-| hax-coq | 67.1% (98/146) |
+| **hax-coq** | **65.8% (96/146)**（v3 P13-B；v1 67.1% / 98/146）|
 
-**辛辣观察一**：syntactic 派的中位 ~75%，**比 SMT 派（kani 98.6% 排除掉之后剩三个均值 48.6%）和 model-check 派（不含 verifast 后由 soteria 一肩 74.7%）相当或略高**。原因：syntactic 不做 mode / lifetime / borrow / spec 检查，把 `&mut` 翻成字符串标签 `"MutRef"`、把 trait method 翻成字符串查表（rocq-of-rust 的 `M.get_trait_method "<trait_path>" "<method>"`），翻译阶段不做语义筛——"工具接受"≠"工具能在这段 Rust 上推 borrow 安全"。
+**辛辣观察一**：syntactic 派的中位 ~75%，**比 SMT 派（kani 93.2% 排除掉之后剩三个均值 48.6%）和 model-check 派（不含 verifast 后由 soteria 一肩 74.7%）相当或略高**。原因：syntactic 不做 mode / lifetime / borrow / spec 检查，把 `&mut` 翻成字符串标签 `"MutRef"`、把 trait method 翻成字符串查表（rocq-of-rust 的 `M.get_trait_method "<trait_path>" "<method>"`），翻译阶段不做语义筛——"工具接受"≠"工具能在这段 Rust 上推 borrow 安全"。
 
-**辛辣观察二**：hax 三个 backend（coq 67% / fstar 79% / lean 75%）的差距集中在 printer-level 与 reject phase 数量。fstar Printer 在 phase 阶段显式拒 mut-ref / raw-ptr / closure-captures-mut（`[HAX0003]/[HAX0008]/[HAX0010]/[HAX0011]` 系），coq Printer 增加 `reject_Dyn` / `reject_Unsafe` 多 reject 几条；lean Printer 反过来——它在 mut-ref / raw-ptr 上不显式拒，**走 silent sorry path**（`lean.rs:1287/2163 PatKind::Error / error_node` 直接 emit `text!("sorry")`）。oracle 用 grep 把 silent sorry 抓回 FAILED——hax-lean 的 36 条 FAILED 里 **20 条**靠 oracle 翻 silent path 才捕获，否则会被 cargo hax exit 0 误判为 SUCCESS。
+**辛辣观察二**：hax 三个 backend（coq 65.8% / fstar 77.4% / lean 75.3%）的差距集中在 printer-level 与 reject phase 数量。fstar Printer 在 phase 阶段显式拒 mut-ref / raw-ptr / closure-captures-mut（`[HAX0003]/[HAX0008]/[HAX0010]/[HAX0011]` 系），coq Printer 增加 `reject_Dyn` / `reject_Unsafe` 多 reject 几条；lean Printer 反过来——它在 mut-ref / raw-ptr 上不显式拒，**走 silent sorry path**（`lean.rs:1287/2163 PatKind::Error / error_node` 直接 emit `text!("sorry")`）。oracle 用 grep 把 silent sorry 抓回 FAILED——hax-lean 的 36 条 FAILED 里 **20 条**靠 oracle 翻 silent path 才捕获，否则会被 cargo hax exit 0 误判为 SUCCESS。P13-A 在 hax-fstar / hax-coq 上各增加 entry_fn 存在性 gate，再抓 2 条 silent-skip-item（`closure-adv/fn-once/closure_fn_once`、`impl-trait/return-iter/impl_trait_iter`，两 backend 同 2 条）—— hax engine 完全 skip 整个 item 的路径（`fstar_backend.ml:1771` / `coq_backend.ml:588`）在 P13-B 重跑实测命中，证明该路径不是 0 实测现象。
 
 **辛辣观察三**：rocq-of-rust 76.0%（P12-B 重跑后）是**单 syntactic 通路的"近全胜"**——35 条 FAILED 里 21 条是单文件读 `src/lib.rs` 不读 Cargo.toml（bigint / deps-complex / industrial 全死在 unresolved import）+ 3 条是 nightly toolchain edition / unstable feature 默认（async-fn / let-chains）+ 1 条 `repr/union/repr_union` 真翻译能力边界 + **新增 10 条由 P12-A gate 6 entry_fn `Definition` 存在性检查抓获**——这 10 条都是 rocq-of-rust 工具自身 exit 0 + 5 道门全通过，但 entry_fn 被 silently `vec![]` 掉（top-level 分发的 silent skip）。具体清单见 cc-report；分布在 aeneas-limit (2) / kani-limit (1) / miri-limit (3) / prusti-limit (4)。原假说"`call_unshimmed_foreign_fn` 96ms 是 silent skip"被 falsify——产物含 `Parameter getpid` + `Definition call_unshimmed_foreign_fn`，那个 entry 是真翻译完成的快速 case。
 
@@ -186,7 +189,7 @@ unsafe：unsafe-ptr (2) / unsafe-adv (3)
 | generic/sum-bound/generic_sum_bound | 1/1 | 1/2 | 2/4 | 1/2 | 5/6 | 4/4 |
 | gat/lending-iter/gat_lending | 1/1 | 1/2 | 2/4 | 2/2 | **2/6** | 1/4 |
 | assoc-type/iter-style/assoc_type_iter | 1/1 | 2/2 | 3/4 | 2/2 | 5/6 | 1/4 |
-| impl-trait/return-iter/impl_trait_iter | 1/1 | 1/2 | 2/4 | 1/2 | 5/6 | 4/4 |
+| impl-trait/return-iter/impl_trait_iter | 1/1 | 1/2 | 2/4 | 1/2 | 5/6 | **2/4** (v3; v1 4/4 — hax-fstar/hax-coq P13-A 翻 silent-skip) |
 | trait/cyclic-bound/cyclic_bound_use | 1/1 | 2/2 | 3/4 | 2/2 | **0/6** | 1/4 |
 
 `trait/cyclic-bound`：MIR 翻译派**全军覆没**——charon×2 都触发 rustc stack overflow（cyclic trait bound 让 charon trait/type resolution 路径无限递归），aeneas×4 跟着挂；syntactic 派 3/4 也挂。`gat/lending-iter`：mir 翻译派 4 个 aeneas + 2 个 charon 中只过 2 个（charon×2，aeneas 全挂在 `Aeneas__Translate.trait_impl_is_builtin Not_found`）；syntactic 派 hax 三个全挂在 `[HAX0001] FunctionalizeLoops`，rocq-of-rust 过。
@@ -197,7 +200,7 @@ unsafe：unsafe-ptr (2) / unsafe-adv (3)
 | --- | --- | --- | --- | --- | --- | --- |
 | closure-adv/boxed-dyn-fn/boxed_dyn_fn | 1/1 | 1/2 | 1/4 | 1/2 | 2/6 | 1/4 |
 | closure-adv/early-bound-lifetime | 1/1 | 1/2 | 1/4 | 1/2 | 2/6 | 4/4 |
-| closure-adv/fn-once | 1/1 | 1/2 | 3/4 | 1/2 | 5/6 | 4/4 |
+| closure-adv/fn-once | 1/1 | 1/2 | 3/4 | 1/2 | 5/6 | **2/4** (v3; v1 4/4 — hax-fstar/hax-coq P13-A 翻 silent-skip) |
 | closure-adv/return-impl-fn | 1/1 | 1/2 | 3/4 | 1/2 | 5/6 | 4/4 |
 | trait-obj/conditional-method | 1/1 | 2/2 | 3/4 | 2/2 | 5/6 | 2/4 |
 | trait-obj/dyn-dispatch | 1/1 | 1/2 | 2/4 | 2/2 | 2/6 | 2/4 |
@@ -235,7 +238,7 @@ unsafe：unsafe-ptr (2) / unsafe-adv (3)
 | --- | --- | --- | --- | --- | --- | --- |
 | charon-limit/async-fn/async_forty_two | 1/1 | 1/2 | 1/4 | 0/2 | 0/6 | 1/4 |
 | kani-limit/async-await/run_async_add | 1/1 | 0/2 | 1/4 | 0/2 | 0/6 | 0/4 |
-| charon-limit/inline-asm/nop_via_asm | 1/1 | 0/2 | 2/4 | 0/2 | 0/6 | 3/4 |
+| charon-limit/inline-asm/nop_via_asm | 1/1 | 0/2 | **0/4 (v3; v1 1/4 — kani P13-A 翻 stub)** | 0/2 | 0/6 | 3/4 |
 
 async-await 3/19、async-fn 4/19——**这是 corpus 上最难的两个 entry**。整 SMT 派只剩 kani（`--only-codegen` 不评 SAT 求解）；mir 派全部 0/6（`Coroutine types are not supported yet`、aeneas 跟着挂）；mc 派也 0/2（verifast `error[E0670] async fn is not permitted in Rust 2015`，soteria 同源 Coroutine reject）。**这两条 entry 单纯就是 corpus 的"async 杀手"，非常成功地把所有 verifier 都 KO 了**。
 
@@ -374,7 +377,7 @@ vendor x509-parser 的 7 处 `unnecessary qualification` + `hiding lifetime that
 
 ## §6 时长（avg / max）
 
-verifast / prusti / rocq-of-rust 三栏数据来自 P12-B 重跑（`run-1778238662-69805`，3 工具高 CPU 利用率，物理时间下限不同），其余来自 `run-1778226613-5282`。
+verifast / prusti / rocq-of-rust 三栏数据来自 v2 P12-B 重跑（`run-1778238662-69805`，3 工具高 CPU 利用率，物理时间下限不同）；kani / hax-fstar / hax-coq 三栏数据来自 v3 P13-B 重跑（`run-1778466265-63960`，3 工具并发 10）；其余 13 工具来自 v1 `run-1778226613-5282`。
 
 | 工具 | avg (ms) | max (ms) |
 | --- | --- | --- |
@@ -385,12 +388,12 @@ verifast / prusti / rocq-of-rust 三栏数据来自 P12-B 重跑（`run-17782386
 | cargo-check | 2124 | 26420 |
 | charon-mono | 2297 | 31899 |
 | miri | 2801 | 35727 |
+| **hax-coq** | **2919 (P13-B)** | **27600 (P13-B)** |
 | charon-poly | 2955 | 34693 |
-| hax-fstar | 3315 | 33132 |
+| **hax-fstar** | **3439 (P13-B)** | **27979 (P13-B)** |
+| **kani** | **3563 (P13-B)** | **28988 (P13-B)** |
 | hax-lean | 3647 | 26768 |
-| hax-coq | 3736 | 26428 |
 | aeneas-lean | 3855 | 36310 |
-| kani | 3872 | 40023 |
 | aeneas-fstar | 3985 | 31561 |
 | aeneas-hol4 | 3990 | 32647 |
 | aeneas-coq | 4075 | 35173 |
@@ -404,16 +407,29 @@ verifast / prusti / rocq-of-rust 三栏数据来自 P12-B 重跑（`run-17782386
 - prusti P12-B avg 7.6s + max 25.2s——本次只跑 3 工具，CPU 利用率比旧 run 高（旧 run 19 工具并发 avg 12.6s / max 76.7s，仍是 Rosetta + JVM bootstrap + encoder 真跑）。
 - kmir max 105.5s——K Framework LLVM backend 解释执行（K interpreter 重）。
 - verifast P12-B avg 140ms——大多数任务在 wrapper grep 阶段就 reject 不再走完整 IR 构造（旧 run avg 282ms 同样不调 cargo / 不跑 prover）。新 oracle 下 verbose 模式让 SUCCESS entry max 362ms（仍亚秒级，只 12 entry）。
+- v3 P13-B 三工具 max 普遍下降（kani 40s → 29s / hax-fstar 33s → 28s / hax-coq 26s → 27.6s 微变），avg 普降——v3 是 3-tool 重跑，cargo cache 竞争 4-5 倍下降。耗时差异是环境上下文，**不是工具能力变化**。
 
 ---
 
 ## §7 暴论 / 内部观察 / 规律
 
-7.1 **支持率前 5 名都是不写产物 .v / .lean 的工具**：cargo-check 100% / kani 98.6% / miri 97.3% / charon-poly 95.2% / charon-mono 94.5%。其中 cargo-check / kani / miri 不产生形式化 IR 文件，charon×2 产 LLBC 但不进任何 prover 后端。**写产物文件就要面对 printer / silent partial 问题**——hax-lean 的 silent sorry path、aeneas-hol4 的 Option.get None、rocq-of-rust 的 6-marker grep guard（含 P12-A gate 6），全是写产物的工具特有的 oracle 问题。
+7.1 **支持率前 5 名都是不写产物 .v / .lean 的工具**（v3 排序）：cargo-check 100% / miri 97.3% / charon-poly 95.2% / charon-mono 94.5% / kani 93.2%。其中 cargo-check / kani / miri 不产生形式化 IR 文件，charon×2 产 LLBC 但不进任何 prover 后端。**写产物文件就要面对 printer / silent partial 问题**——hax-lean 的 silent sorry path、aeneas-hol4 的 Option.get None、rocq-of-rust 的 6-marker grep guard（含 P12-A gate 6）、hax-fstar/hax-coq 的 entry_fn 存在性 gate（含 P13-A），全是写产物的工具特有的 oracle 问题。**注**：kani 在 v3 已不再"完全不写产物"——`--only-codegen` 输出 stub-with-warning，5-marker wrapper 是其写"半产物"特有的 oracle 处理；v1 旧排序里 kani 98.6% 紧跟 cargo-check 排第 2 的位置，v3 跌到第 5。
 
 7.2 **"不读 Cargo.toml 的工具"在 bigint/deps-complex/industrial 三类上全 0**：verifast / soteria / verus / rocq-of-rust 都吃过这个亏。**单文件输入 = 工业级 corpus 死刑**——这 21 个 entry 占 14.4%，**工具支持率最多被砍 14pp 起步**。
 
-7.2-bis（P12-B 新增）**"工具自陈接受 + 实测语义降级"是 oracle 设计的真挑战**：verifast 旧 79.5% 是最极端的样例——工具 exit 0 是真的，但 corpus 0 spec + `-skip_specless_fns` 让 SUCCESS 退化成"只 verify 工具自家 prelude"。P12-A `verifast-strict-wrapper.sh` 用 verbose user-file grep 把这层语义降级翻进 oracle 形式语义，**通过率从 79.5% 跌到 8.2%（删掉 71pp 的空过）**。这条路径上 oracle 无法只看 exit code 的**根本理由**：工具自身从未承诺"exit 0 = user code verified"，是测试 corpus 的形态触发了语义降级；oracle 必须把测试上下文（"全 corpus 0 spec"）翻进判据。同类形态在 prusti（P12-A 防御层）/ rocq-of-rust（gate 6 entry_fn）也已落地，但只 verifast 触发了大幅数字回撤。
+7.2-bis（P12-B 立项 / P13-B 扩展）**"工具自陈接受 + 实测语义降级"已升级为多案例的 oracle 设计弱点谱**：
+
+| 工具 | 语义降级路径 | oracle 改造 | 通过率变化 |
+| --- | --- | --- | --- |
+| **verifast**（P12）| `-skip_specless_fns` × 0 spec corpus → SUCCESS 是 "verify prelude" 不是 verify 用户代码 | wrapper verbose user-file grep | **79.5% → 8.2%（-71pp / -104 entries）**|
+| **rocq-of-rust**（P12）| top-level kind dispatch silent `vec![]` → exit 0 + 5 markers 全通过但 entry_fn 不在 .v | gate 6 entry_fn `Definition` 存在性 | 82.9% → 76.0%（-7pp / -10 entries）|
+| **kani**（P13）| `--only-codegen` × `Found the following unsupported constructs:` warning（kani 自陈 "Verification will fail if reachable"）→ stub codegen 完成 exit 0 | wrapper 5-marker grep（InlineAsm/simd_cast/catch_unwind/ptr_mask/C string literal）| **98.6% → 93.2%（-5.5pp / -8 entries）**|
+| **hax-fstar**（P13）| `fstar_backend.ml:1771 Use/NotImplementedYet -> []` 让某些 item 完全不写 .fst | entry_fn `let/let rec/and` 存在性 gate | 78.8% → 77.4%（-1.4pp / -2 entries）|
+| **hax-coq**（P13）| `coq_backend.ml:588 item'_NotImplementedYet` → 整 item 渲染为 `(* NotImplementedYet *)` comment | entry_fn `Definition/Fixpoint/Lemma/...` 存在性 gate | 67.1% → 65.8%（-1.4pp / -2 entries）|
+
+**这 5 个案例构成一类"工具默认接受范围 > 实际处理能力"的 oracle 设计弱点谱**——工具自身从未在 exit code 上承诺"SUCCESS = 用户代码真翻译完成"，是测试 corpus 形态 + 工具切割点选择共同触发了语义降级。oracle 必须把测试上下文（"全 corpus 0 spec" / "`--only-codegen` 路径"）+ 工具自陈警告（"Verification will fail if..."）翻进形式判据。
+
+**verifast 7.2-bis 的"71pp 单点"是规模最大的案例，但本质相同**——项目宪法 §4.2 反误报实测在源码 + 实测层不只是抓 verifast 单点，而是抓出一类设计弱点。规模分化：verifast 灾难级 / kani 中等回撤 / hax-fstar+hax-coq 各 2 条点状命中——但每条 entry 的语义机制都符合"工具走 silent path 仍 exit 0"模板，oracle 改造规则在双向反误报实测下都成立（详 implementation log §2 / §2.x）。
 
 7.3 **"工具自陈限制集"在该工具自己上不一定全 fail**：
 - prusti-limit 8 条在 prusti 上 1/8（设计意图实现：prusti 期望失败的样例真 fail 7 个）
@@ -429,7 +445,7 @@ verifast / prusti / rocq-of-rust 三栏数据来自 P12-B 重跑（`run-17782386
 
 7.6 **hax 三个 backend 的 7pp 差距全在 printer + reject phase 数量**：fstar 79% > lean 75% > coq 67%。fstar Printer 较成熟（reject_RawOrMutPointer / reject_ArbitraryLhs / reject_TraitItemDefault 等显式 reject），所以 fstar 的 silent path 很少；lean Printer 在 mut-ref / raw-ptr 上**走 silent sorry**，oracle 用 grep 把 20 条 silent fallback 抓回 FAILED；coq 多 reject 几个 phase（reject_Dyn / reject_Unsafe），所以 coq 通过率最低但是"显式 reject 最干净"。
 
-7.7 **kani --only-codegen 切割点几乎覆盖整个 stable Rust 输入面**。除了 vendor lint 撞车的 2 条 industrial-x509，没有任何 entry 触发 GotoC codegen 拒收路径——`kani-limit/*` 7 条全过（这些"不支持"在 SAT 求解阶段才显现）、bigint 8/8、deps-complex 7/7、float 10/10、closure-adv 4/4。**kani 的 98.6% 是 codegen 接受率，不是验证通过率**——后者在 SAT 求解阶段才有意义，本测试不进。
+7.7 **kani --only-codegen 切割点覆盖大部分 stable Rust，但 P13 揭示了一片虚高带**。v1 旧 oracle 下 98.6% 是 codegen 通过率（含 stub），P13-A 用 wrapper 抓 5 markers 后 v3=93.2%——8 个原 SUCCESS 是 stub-with-warning（kani 自陈 "Verification will fail if one or more of these constructs is reachable"），按 §六-2 反作弊翻 FAILED。剩下 2 个 FAILED 仍是 vendor lint 撞车。kani-limit/* 6/7 仍过（仅 stack-unwinding 在 `catch_unwind` 路径上翻 FAILED，inline-assembly / async-await 等被 5-marker subset 故意排除——因为它们落在 `caller_location` / `foreign function` 路径上而非 hard-unsupported）。**kani 的 v3 93.2% 是 "codegen 完成 + 5 markers 不命中" 接受率**，而非验证通过率——后者在 SAT 求解阶段才有意义，本测试不进。剩 ≈40% SUCCESS 含 `caller_location` / `foreign function` warning 仍口径未决（详 cc-report 漏报盲点段）。
 
 7.8 **miri 的 4 个 FAILED 全部是 corpus 故意设计的 miri 边界触发**：inline-asm / extern FFI / TCP socket / `MaybeUninit::assume_init()` UB。**这是 corpus 设计意图的完美兑现**——不是 miri 能力问题，是 corpus 在测 miri 边界且 miri 被测出。
 

@@ -1,8 +1,25 @@
 # 按"不允许 partial"精神：cargo hax exit 0 必要；额外 grep 产物 silent marker 抓
 # cargo hax exit 0 但产物含 failure 的 silent partial 路径。
+#
+# 第二轮 oracle 漏报封堵（2026-05-11）追加：源码层 silent-skip-item 路径
+#   `backends/fstar/fstar_backend.ml:1771 | Use _ | NotImplementedYet -> []`
+# 让某些 item 完全不写入 .fst 产物（既无定义也无 failure marker），cargo hax
+# 仍 exit 0。新增 gate：grep entry_fn 在 .fst 中是否有 `let <fn>` / `let rec <fn>`
+# / `and <fn>`（hax-fstar 对 Fn 项统一用 NoLetQualifier，即 `let`；mutual
+# recursion 第一个改写为 `let rec`，后续改写为 `and` —— 详见
+# fstar_backend.ml:1112 / 1923-1924）。任一形式命中即认为 entry_fn 真翻译过。
+#
+# runner expand_env 陷阱：tool.toml 内必须用 `$TS_ENTRY_FN`（无 `{}`）而非
+# `${TS_ENTRY_FN}`。runner 的 expand_env 把 `${VAR}` 形式在 TOML parse 时展开
+# 为运行时 env var；但 `TS_ENTRY_FN` 在 runner 启动时不存在（仅在 spawn child
+# 前才注入），所以 `${TS_ENTRY_FN}` 会被展开为空串。`$TS_ENTRY_FN` 形式对
+# runner 不展开（只匹配 `${...}`），交给 sh 执行时的 shell 展开。
+#
+# See: docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.2, §4.2
+#      docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md §2.2
 command = [
   "sh", "-c",
-  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into fstar; rc=$?; if [ $rc -eq 0 ]; then if grep -rqE 'Rust_primitives\\.Hax\\.failure|failure \\(\\(' proofs/fstar/extraction/ 2>/dev/null; then echo '[hax-fstar-oracle] FAIL: cargo hax exit 0 but product contains failure marker (silent partial translation)' >&2; rc=1; fi; fi; exit $rc"
+  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into fstar; rc=$?; if [ $rc -eq 0 ]; then if grep -rqE 'Rust_primitives\\.Hax\\.failure|failure \\(\\(' proofs/fstar/extraction/ 2>/dev/null; then echo '[hax-fstar-oracle] FAIL: cargo hax exit 0 but product contains failure marker (silent partial translation)' >&2; rc=1; elif [ -n \"$TS_ENTRY_FN\" ] && ! grep -rqE \"^(let[[:space:]]+(rec[[:space:]]+)?|and[[:space:]]+)$TS_ENTRY_FN[[:space:]]\" proofs/fstar/extraction/ 2>/dev/null; then echo \"[hax-fstar-oracle] FAIL: entry_fn '$TS_ENTRY_FN' missing from .fst products (silent skip — fstar_backend.ml:1771 Use/NotImplementedYet path; see docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.2)\" >&2; rc=1; fi; fi; exit $rc"
 ]
 timeout_secs    = 300
 version_command = [

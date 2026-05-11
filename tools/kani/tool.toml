@@ -5,6 +5,25 @@
 # it would routinely time out on collection / concurrency / recursive enums
 # while other tools just translated. SAT solving is a separate layer outside
 # this testsuite's stated goal of feature-coverage screening.
-command         = ["cargo", "kani", "--only-codegen", "--bin", "__ts_harness"]
+#
+# Invocation strategy:
+#   - We invoke kani through tools/kani/kani-strict-wrapper.sh (NOT directly),
+#     which runs the same `cargo kani --only-codegen --bin __ts_harness` command
+#     below and then post-checks the stdout for the §C1 codegen-with-stub漏报
+#     pattern documented in docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.1
+#     and the implementation log
+#     docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md §2.1.
+#   - The 5 markers (TerminatorKind::InlineAsm / simd_cast / catch_unwind /
+#     ptr_mask / C string literal) are the kani-self-disclosed
+#     "Verification will fail if one or more of these constructs is reachable"
+#     warnings that signal partial codegen (stub emitted). We deliberately
+#     exclude `caller_location` and `foreign function` from this list — both
+#     are emitted on most std-using entries via std panic/alloc paths and
+#     including them would cause mass false positives.
+#
+# exit 0 (passed wrapper)                     → SUCCESS
+# exit 2 (rewritten by wrapper on 5-marker)   → FAILED (partial codegen)
+# exit ≠ 0 (kani direct, e.g. 101)            → FAILED (real codegen error)
+command         = ["${TS_PROJECT_ROOT}/tools/kani/kani-strict-wrapper.sh"]
 timeout_secs    = 120
 version_command = ["cargo", "kani", "--version"]

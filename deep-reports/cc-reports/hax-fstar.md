@@ -2,11 +2,13 @@
 
 ## 元数据
 
-- **数据源**：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **数据源**：`runs/run-1778466265-63960/`（2026-05-11，P13-B 重跑 3-tool × 146 entries：kani / hax-fstar / hax-coq；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **历史 run（对照）**：`runs/run-1778226613-5282/`（2026-05-08 主 run，旧 oracle 下 hax-fstar 115/146）
 - **工具版本**：`hax untagged-git-rev-30949eb870`（commit `30949eb87058895c24f963df90dd30ef11b0dc1a`）；nightly toolchain `nightly-2025-11-08`；OCaml `hax-engine` + Rust frontend driver `driver-hax-frontend-exporter`
 - **工具配置**：`tools/hax-fstar/`
-- **通过率**：SUCCESS 115 / 146 ≈ **78.8%**（FAILED 31，TIMEOUT 0）
-- **耗时分布**：avg 3315 ms / median 1333 ms / p90 7785 ms / p95 13759 ms / max 33132 ms（无 timeout 触发，timeout 上限 300 s 远未触达）
+- **通过率**：**SUCCESS 113 / 146 ≈ 77.4%**（FAILED 33，TIMEOUT 0）—— P13-B 重跑，封堵 silent-skip-item 漏报后；旧 oracle 下 115/146 = 78.8%
+- **耗时分布**：avg 3439 ms / median 681 ms / p90 13088 ms / max 27979 ms（无 timeout 触发，timeout 上限 300 s 远未触达）
+- **oracle 改造**：`tools/hax-fstar/tool.toml` 在原 `Rust_primitives.Hax.failure` / `failure ((` grep 后追加 gate：grep entry_fn 在 `proofs/fstar/extraction/` 中存在（pattern `^(let\s+(rec\s+)?|and\s+)$TS_ENTRY_FN\s`，覆盖 NoLetQualifier + mutual-rec `let rec` / `and` 三种渲染形态）。不命中 → FAILED。详 `docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md` §2.2
 - **时效声明**：本快照锚定上述 run id + hax commit + nightly 工具链 + corpus，不构成长期承诺。三个 hax backend 共享同一 `hax-engine` OCaml binary，但 F\* Printer 与 Lean / Coq Printer 是各自独立的 OCaml 模块，未来上游对各 printer 的拒绝边界改动会让本快照失效。
 
 ## 工具内部 pipeline + 前端边界
@@ -26,19 +28,38 @@ rustc + driver-hax-frontend-exporter
 
 ## SUCCESS 信号 + 形式严格性
 
-**判定式**：
+**判定式**（P13-A 后，双门）：
 
 ```
-SUCCESS ⟺ cargo hax exit 0 ∧ 产物 grep 不命中
-          'Rust_primitives.Hax.failure' 或 'failure ((' 字面
+SUCCESS ⟺ cargo hax exit 0
+        ∧ 产物 grep 不命中 'Rust_primitives.Hax.failure' / 'failure ((' 字面
+        ∧ entry_fn 在 proofs/fstar/extraction/ 中命中
+          pattern `^(let\s+(rec\s+)?|and\s+)$TS_ENTRY_FN\s`
 ```
 
-`Rust_primitives.Hax.failure` 是 hax 内部 `hax_failure_expr` 渲染为 F\* literal 时的完整路径，作为防御性 silent-path 检测。本矩阵下 oracle 对 hax-fstar **0 次触发该路径**——所有 31 条 FAILED 都通过 cargo hax exit 1（即 hax engine 主动 emit Diagnostic）信号识别，silent partial 在本 corpus 上未观察到。
+第一门（exit + failure marker grep）是 v1 旧 gate；第二门（entry_fn 存在性 gate）是 P13-A 新封堵——源码层 silent path 来自 `backends/fstar/fstar_backend.ml:1771 | Use _ | NotImplementedYet -> []`，让某些 item 完全不写入 `.fst` 产物（既无定义也无 failure marker），cargo hax 仍 exit 0。
+
+**pattern 设计的关键发现**：audit-2 §4.2 推荐 `^let\s+$TS_ENTRY_FN\s`（仅 plain `let`），实测被 falsify——`creusot-limit/mutual-recursion/trigger_is_even` 的产物含 `let rec is_odd ... and is_even ...`，audit pattern 漏 mutual-rec 第二项（被改写为 `and` 而非 `let`，源 `fstar_backend.ml:1923-1924`）。本实施扩展为 `(let\s+(rec\s+)?|and\s+)` 三种形态，是从合法 SUCCESS 反向校准出来的修正——与 P12 verifast `N≤40` 阈值被 falsify 同级。
+
+**P13-B 重跑触发的 silent-skip-item 实测**：
+
+| entry | hax-fstar 行为 | 原 oracle | 新 oracle |
+|---|---|---|---|
+| `closure-adv/fn-once/closure_fn_once` | cargo hax exit 0，wrote `Closure_adv_fn_once.fst`，但产物不含 `let closure_fn_once`（源码层 `NotImplementedYet` 跳过）| SUCCESS（漏报）| FAILED ✓ |
+| `impl-trait/return-iter/impl_trait_iter` | 同上，wrote `Impl_trait_return_iter.fst`，产物不含 `let impl_trait_iter`| SUCCESS（漏报）| FAILED ✓ |
+
+stderr 诊断（实测）：
+
+```
+info: hax: wrote file ./proofs/fstar/extraction/Closure_adv_fn_once.fst
+[hax-fstar-oracle] FAIL: entry_fn 'closure_fn_once' missing from .fst products
+                   (silent skip — fstar_backend.ml:1771 Use/NotImplementedYet path)
+```
 
 **形式严格性**：
-- **0 误报**：⚠️ 实测验证，不可形式证明。grep 模式 `Rust_primitives.Hax.failure` 是完整路径 literal，用户合法代码极难写出该字面字符串。本矩阵实测：用户 doc comment + 局部变量 `let failure: i32 = 5;` 都不触发——但不能形式排除
-- **0 漏报**：⚠️ 实测验证，不可形式证明。F\* backend 较成熟、几乎不走 silent path，本 corpus 0 触发。grep 是防御性检测；理论上上游引入新 silent path 的可能存在
-- **漏报盲点**：hax engine 完全 skip item 的可能（实测 0 现象）；上游引入新 silent path 的可能（实测无）
+- **0 误报**：✅ 形式可证。hax-fstar 对 Rust `fn` 项统一用 `TopLevelLet (NoLetQualifier, ...)` 渲染（fstar_backend.ml:1112，单一入口）；mutual rec 后处理把 `let` 改为 `let rec` / `and`（fstar_backend.ml:1923-1924）——pattern 的三分支并集覆盖 F\* fn 渲染的全集，合法翻译 entry_fn 必命中。`Rust_primitives.Hax.failure` 是完整路径 literal，用户合法代码极难写出
+- **0 漏报**：✅ 实测验证。entry_fn 存在性 gate 在 P13-B 重跑上命中 2 条原 SUCCESS，证明 audit §3.2 标记的 silent-skip-item 路径不是 0 实测现象——以及 silent path 的覆盖：`(* NotImplementedYet *)` / `Use _` 类 item 完全不写产物的情况，被 gate 抓出
+- **漏报盲点**：上游 F\* fn 渲染未来引入新 keyword（如 `unfold let` / `inline_for_extraction let`）——当前基线 hax 30949eb 不使用
 
 ## 实测结果
 
@@ -48,17 +69,17 @@ SUCCESS ⟺ cargo hax exit 0 ∧ 产物 grep 不命中
 
 ```
 arc / bigint(8/8) / box / collections / const / deps-complex(7/7) / drop / enum / error
-float(10/10) / generic / hello / hrtb(1/1) / impl-trait / int / int-width(14/14) / iter
+float(10/10) / generic / hello / hrtb(1/1) / int / int-width(14/14) / iter
 panic / prusti-limit(8/8) / rc / slice / vec
 ```
 
-**部分通过**（数字为 S/总）：`aeneas-limit` 5/8、`charon-limit` 5/7、`closure-adv` 3/4、`concurrency` 1/2、`creusot-limit` 6/7、`hax-limit` 2/8、`industrial` 4/6、`kani-limit` 6/7、`lifetime` 2/3、`miri-limit` 6/7、`repr` 1/2、`trait-obj` 1/2、`unsafe-adv` 1/3。
+**部分通过**（数字为 S/总）：`aeneas-limit` 5/8、`charon-limit` 5/7、`closure-adv` 2/4（v1 3/4，P13-A 翻 1）、`concurrency` 1/2、`creusot-limit` 6/7、`hax-limit` 2/8、`impl-trait` 0/1（v1 1/1，P13-A 翻 1）、`industrial` 4/6、`kani-limit` 6/7、`lifetime` 2/3、`miri-limit` 6/7、`repr` 1/2、`trait-obj` 1/2、`unsafe-adv` 1/3。
 
-**全 FAILED**：`assoc-type`(0/1)、`closure`(0/2)、`gat`(0/1)、`refcell`(0/1)、`trait`(0/1)、`unsafe-ptr`(0/2)。
+**全 FAILED**：`assoc-type`(0/1)、`closure`(0/2)、`gat`(0/1)、`impl-trait`(0/1)、`refcell`(0/1)、`trait`(0/1)、`unsafe-ptr`(0/2)。
 
 ### 失败模式归类（基于 raw stderr）
 
-31 个 FAILED stderr 几乎全部带稳定的 `[HAX####]` 错误码 + 关联 GitHub issue 链接。按主导错误码分桶（一个 entry 可能同时触发多码，按主信号归桶）：
+33 个 FAILED stderr 几乎全部带稳定的 `[HAX####]` 错误码 + 关联 GitHub issue 链接（P13-A gate 新抓的 2 条用 `[hax-fstar-oracle]` 自定义诊断）。按主导错误码分桶（一个 entry 可能同时触发多码，按主信号归桶）：
 
 | 桶 | 数量 | 主导 reject 信号 |
 |---|---:|---|
@@ -72,8 +93,9 @@ panic / prusti-limit(8/8) / rc / slice / vec
 | **G. industrial 工业代码 lint→error** | 2 | `industrial/x509-parser/cert-parse/{x509_parse_der, x509_subject_extensions}`：vendor crate 的 `unnecessary qualification` lint 在 nightly 下被升级为 error，cargo build 在 hax-engine 启动前失败 |
 | **H. 底层 rustc / hax frontend 栈溢出** | 1 | `trait/cyclic-bound/cyclic_bound_use`：`thread 'rustc' has overflowed its stack` |
 | **I. `[HAX0002]` AST import 内部 error** | 1 | `charon-limit/inline-asm/nop_via_asm`：`expression Todo InlineAsm(...)` |
+| **J. silent-skip-item（P13-A gate 抓获）** | 2 | `closure-adv/fn-once/closure_fn_once`、`impl-trait/return-iter/impl_trait_iter`：cargo hax exit 0 + wrote `*.fst` 文件，但产物不含 entry_fn 定义（源码层 `fstar_backend.ml:1771 Use/NotImplementedYet -> []` 路径，item 完全 silent skip）|
 
-数量加总：6+11+3+4+1+1+1+2+1+1 = 31 ✓
+数量加总：6+11+3+4+1+1+1+2+1+1+2 = 33 ✓
 
 stderr 形态稳定，举一例（`closure/fn-fnmut/closure_fnmut`）：
 
@@ -99,4 +121,4 @@ Note: the error was labeled with context `DirectAndMut`.
 
 ## 历史快照声明
 
-本报告所有数字基于 `runs/run-1778226613-5282`（2026-05-08）+ hax `30949eb8` + nightly-2025-11-08 + opam hax-engine。F\* Printer 在本快照下"几乎不走 silent path"是经验事实，未来上游修改 phase 顺序或新增构造翻译规则可能改变这条性质——届时 oracle 的 grep 防御层（`Rust_primitives.Hax.failure` / `failure ((`）将作为兜底信号生效。
+本报告所有数字基于 `runs/run-1778466265-63960`（2026-05-11，P13-B 重跑）+ hax `30949eb8` + nightly-2025-11-08 + opam hax-engine + P13-A oracle 改造。F\* Printer 在本快照下虽较成熟，但 silent-skip-item 路径在 P13-B 重跑实测命中 2 条（`closure-adv/fn-once`、`impl-trait/return-iter`），证明该路径不是 0 实测现象；未来上游修改 `fstar_backend.ml:1771` 的 `Use _ / NotImplementedYet -> []` 分支或新增 fn 渲染 keyword 可能再改变本快照——届时 oracle 的双门（failure marker grep + entry_fn 存在性 gate）将作为兜底信号生效。

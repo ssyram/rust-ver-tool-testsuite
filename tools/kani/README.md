@@ -24,12 +24,28 @@ Kani 由 AWS 开发，将 Rust MIR 翻译为 CBMC 可消费的 GotoC IR，再由
 
 ### SUCCESS 信号（严格反映前端特性支持范围）
 
-为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = `cargo kani --only-codegen` exit 0**（goto-binary 完整生成，CBMC 不调用）。任何 partial → FAILED。
+为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = `cargo kani --only-codegen` exit 0 且 stdout 不含 5 个 hard-unsupported MIR construct markers**。任何 partial → FAILED。
 
-- **partial 暴露机制**：kani-compiler 在 codegen 阶段任何失败 → exit ≠ 0
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。kani exit 0 ⇔ codegen 完成无错误
-- **形式严格性 — 0 漏报（不高估能力）**：⚠️ 形式上**部分可证**——codegen 完成性由 kani-compiler 保证，但 stderr 中 `Found the following unsupported constructs: caller_location / foreign function ...` 是 warning（仅对 SAT 求解阶段有意义），不影响 codegen 完成 / exit 码。实测 corpus 上 SUCCESS entry 无此 warning，但理论上其他 corpus 可能触发"warning + codegen 完成"的边角情形（这种情况下 kani 实际上仍接受了源码进入 codegen，只是 SAT 阶段会警告）
-- **漏报盲点**：codegen 完成 + warning 但 SAT 阶段才会触发问题的 entry（实测未观察到）
+调用路径：runner 调 `kani-strict-wrapper.sh`（非直接调 cargo kani），wrapper 跑 `cargo kani --only-codegen --bin __ts_harness`，exit 0 后 grep stdout 中 `Found the following unsupported constructs:` 警告 list 的 5 个 marker（[`kani-strict-wrapper.sh`](kani-strict-wrapper.sh) 第 50-100 行）：
+
+| Marker | 含义 |
+| --- | --- |
+| `TerminatorKind::InlineAsm` | inline asm MIR terminator —— kani 无 goto-cc 语义，emit stub |
+| `simd_cast` | packed-SIMD cast intrinsic —— stub |
+| `catch_unwind` | panic recovery —— kani unwind model 为 stub |
+| `ptr_mask` | raw-pointer bit-mask intrinsic —— stub |
+| `C string literal` | `c"..."` raw cstr 字面量 MIR rvalue —— Rust 2024 stable feature kani-compiler 尚未 lower |
+
+任意命中 → wrapper 重写 exit 0 为 exit 2 + 写诊断到 stderr → 框架记 FAILED。
+
+**特意排除 `caller_location` 与 `foreign function`** —— 它们由 std panic 路径 / std alloc 路径在几乎所有非 trivial entry 上触发（实测 60-63/144 SUCCESS 含此 warning），抓它们会大规模假阳性。这两个 warning 是 kani 对 std 内部的标准处理，不是用户代码的 partial codegen 信号。
+
+详见：[`docs/fixes/oracle-leak-audit-2-2026-05-11.md`](../../docs/fixes/oracle-leak-audit-2-2026-05-11.md) §3.1，落地记录 [`docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`](../../docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md) §2.1。
+
+- **partial 暴露机制**：kani-compiler codegen 阶段任何 hard 失败 → exit ≠ 0；soft 失败（emit stub + warning）→ wrapper 抓 5 markers 后重写 exit 2
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。任意合法 SUCCESS（不触发 5 markers）在 wrapper 下保持 SUCCESS（hello/basic-hello / bigint-arith / industrial/rsa-pkcs8 / industrial/sha256-digest 实测均 SUCCESS）
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层封堵。5 markers 是 kani 自陈"我没把这条干完"的明确字面，与"工具接受"互斥。**注**：`caller_location` / `foreign function` warning 的处理状态保持现有口径（前端 stub + SAT 才显现），按宪法 §六-2 严格解读这是可争议的剩余口径——见漏报盲点。
+- **漏报盲点**：`caller_location` 与 `foreign function` 在 kani 上仍 codegen 为 stub 但 oracle 不抓（避高频假阳性）；kani 未来新增 unsupported MIR 节点类别（hax-engine / kani-compiler 演进可能引入新 stub 路径，需要扩展 5 markers list）
 
 ## 安装
 
