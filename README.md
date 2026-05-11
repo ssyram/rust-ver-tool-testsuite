@@ -233,6 +233,19 @@ fn main() {
 
 ---
 
+## 测试运行环境与平台
+
+**当前测试基线运行环境**：
+
+- host：Apple M5 / macOS aarch64（darwin 25.4.0）
+- 部分工具配置含 macOS arm64 / x86_64 硬编码路径或 target triple（详见各工具 README §"已知限制 / 平台兼容"）
+
+**基础设施层精神**：runner 自身平台无关（纯 Rust + 标准 stdlib，无 OS-specific syscall 之外的依赖）。各工具的 platform-specific 配置封在该工具的 `tool.toml` / wrapper 内，用户可通过 `.env` / 编辑 `tool.toml` / 修改 wrapper 改造适配其他平台——基础设施不替工具屏蔽平台差异，但也不阻止用户接入。
+
+**用户级配置**：所有 `TS_*` 前缀的环境变量都在 [`.env.example`](.env.example) 列出，用户复制到 `.env` 后按本机实际安装路径填即可。详见 `.env.example` 与各工具 README "安装" 段。
+
+---
+
 ## 工具类别与"前端边界"
 
 19 个工具按内部 pipeline 分五类。**本测试只测每个工具到自带后端验证器/求解器之前为止**，不进入下游求解器。每个工具的 README 都精确写出本工具的这条边界。

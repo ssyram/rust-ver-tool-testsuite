@@ -53,13 +53,19 @@ echo "[aeneas-lean-wrapper] found llbc: $LLBC_FILE"
 LEAN_OUT="$(pwd)/lean-out"
 mkdir -p "$LEAN_OUT"
 echo "[aeneas-lean-wrapper] stage 2: aeneas -backend lean"
+# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
+# 导致下面的诊断行（[aeneas-lean-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+set +e
 "$AENEAS_BIN" -backend lean -dest "$LEAN_OUT" "$LLBC_FILE"
 AENEAS_EXIT=$?
+set -e
 echo "[aeneas-lean-wrapper] aeneas exit: $AENEAS_EXIT"
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-lean-wrapper] generated lean files:"
     find "$LEAN_OUT" -name "*.lean" | sort
+else
+    echo "[aeneas-lean-oracle] FAIL: aeneas exit $AENEAS_EXIT" >&2
 fi
 
 exit $AENEAS_EXIT

@@ -1,5 +1,7 @@
 # rocq-of-rust gate 6 漏报修复（2026-05-11）
 
+> **派生链**：前序 [`rocq-of-rust-typecheck-implementation-2026-05-11.md`](rocq-of-rust-typecheck-implementation-2026-05-11.md)（P15-impl 反向暴露）→ **本文**
+
 > 本文记录 [P15-impl 实施](rocq-of-rust-typecheck-implementation-2026-05-11.md) 反向暴露的档 0 (`tools/rocq-of-rust`) gate 6 漏报点的根因分析、修复方案、反误报双向实测、与档 1 (`tools/rocq-of-rust-typecheck`) 的对齐说明。
 >
 > 按 [`docs/design/tool-integration.md`](../design/tool-integration.md) §4.2 双向实测要求：新机制必须同时验证（i）已知 silent path → 命中；（ii）合法 SUCCESS → 不命中。本文 §3 给双向实测证据。

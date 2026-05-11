@@ -48,13 +48,19 @@ echo "[aeneas-coq-wrapper] found llbc: $LLBC_FILE"
 COQ_OUT="$(pwd)/coq-out"
 mkdir -p "$COQ_OUT"
 echo "[aeneas-coq-wrapper] stage 2: aeneas -backend coq"
+# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
+# 导致下面的诊断行（[aeneas-coq-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+set +e
 "$AENEAS_BIN" -backend coq -dest "$COQ_OUT" "$LLBC_FILE"
 AENEAS_EXIT=$?
+set -e
 echo "[aeneas-coq-wrapper] aeneas exit: $AENEAS_EXIT"
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-coq-wrapper] generated coq files:"
     find "$COQ_OUT" -name "*.v" | sort
+else
+    echo "[aeneas-coq-oracle] FAIL: aeneas exit $AENEAS_EXIT" >&2
 fi
 
 exit $AENEAS_EXIT

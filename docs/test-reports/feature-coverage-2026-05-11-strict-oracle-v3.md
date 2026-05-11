@@ -1,5 +1,7 @@
 # 19 工具特性覆盖度综合报告（2026-05-11，strict-oracle-v3）
 
+> **状态**：已部分被 P16+ 实施超越。最新数据见 `feature-coverage-2026-05-?-strict-oracle-v4.md`（待出）+ 各份 cc-report 头部 run id。
+
 > 本报告综合 19 份 cc-report，基于 P13-A oracle 漏报封堵（kani / hax-fstar / hax-coq 第二轮 oracle 漏报封堵）后的实测数据：13 工具数字来自 `runs/run-1778226613-5282` 主 run（2026-05-08），3 工具（verifast / prusti / rocq-of-rust）数字来自 `runs/run-1778238662-69805` 的 P12-B 重跑，3 工具（kani / hax-fstar / hax-coq）数字来自 `runs/run-1778466265-63960` 的 P13-B 重跑。
 >
 > 与上一份报告 [`feature-coverage-2026-05-08-strict-oracle-v2.md`](./feature-coverage-2026-05-08-strict-oracle-v2.md) 的差异：v2 已在 verifast / prusti / rocq-of-rust 三工具上封堵 oracle 漏报；v3 在 v2 基础上追加 kani / hax-fstar / hax-coq 三工具的 oracle 改造（实施记录见 [`docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`](../fixes/oracle-leak-rules-implementation-2-2026-05-11.md)）后重跑：**kani 通过率从 98.6% 跌到 93.2%（-5.5pp / -8 entries），hax-fstar 78.8% 跌到 77.4%（-2 entries），hax-coq 67.1% 跌到 65.8%（-2 entries）**。

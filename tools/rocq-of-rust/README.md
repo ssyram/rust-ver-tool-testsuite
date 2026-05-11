@@ -86,6 +86,40 @@ N-attempt（默认 N=7，可通过 `ROCQ_OF_RUST_N_ATTEMPTS` env 覆盖）封堵
 - **静默吞错升级**：rocq-of-rust 对不支持的构造 exit 0 但在 `.v` 文件中嵌入 `(* Unexpected ... *)` 等注释块；wrapper 第 5 道门 grep 把这类静默失败升级为非 0 exit，映射为 FAILED。第 6 道门 N-attempt 把 entry_fn silent skip（确定性的 + 非确定性的）一并捕获。
 - **产物 symlink**：wrapper 成功后建 `rocq_translation/` symlink 指向 `rocq_translation_1/`，便于下游消费者（如 typecheck wrapper / 手动检查）按历史路径访问产物。
 
+## 与 hax-lean 的可运行性对比
+
+ror 与 hax-lean 都是 Rust → prover IR 的翻译工具，但**产物形态不同**，导致档 2/3（evaluate / 与 Rust 一致）的可达性截然不同。详见 [`docs/research/ror-runnable-deep-dive-2026-05-11.md`](../../docs/research/ror-runnable-deep-dive-2026-05-11.md)。
+
+**深嵌入（deep embedding）vs 浅嵌入（shallow embedding）**：
+
+- **ror 是 deep embedding**。产物形如 `Definition fn (a b : Value.t) : M.t LowM.t (Value.t + Exception.t) := let* ... call_closure BinOp.Wrap.add ...`。`Value.t` 是 inductive 包装类型，`M : LowM.t (...)` 是 effect monad；所有 op（`alloc` / `read` / `call_closure` / `call_primitive`）是 inductive constructor，**无 Compute 语义**。`vm_compute` / `native_compute` 直接 SIGSEGV（axiom-laden `Run.t` proof tree 在 native compute 下 crash）。
+- **hax-lean 是 shallow embedding**（参考定位）。产物形如 `def fn (a b : Int32) : RustM Int32 := RustM.ok (a + b)`，Lean `#eval fn 3 4` 一行直接出 `RustM.ok 7`。
+
+**ror 上游"官方运行模式"**：
+
+- API：`SimulateM.eval` / `SimulateM.eval_f`（`simulate/M.v:343 / 445`）。
+- 性质：**propositional 解释器**，不是 native compute。
+- 输入：`LinkM.t R Output` + 需要 `Run.Trait` 实例（用户用 `run_symbolic` tactic 推导）。
+- 输出：`SimulateM.t` inductive，**不是** native `Z`。
+- 与"值"关系：propositional（`🌲` notation 是 `Run.t value (eval_f run stack)` 的 sugar），用 `repeat (eapply Run.Call || apply Run.Pure)` 证明。
+- 性能：per-entry **5–50+ 行手工 Coq tactic**；递归 fn 需手工 well-founded induction。
+
+**档可达性总结表**：
+
+| 档 | ror | hax-lean |
+| --- | --- | --- |
+| 档 0 前端接受 | ✅ `tools/rocq-of-rust`（本工具）| ✅ `tools/hax-lean` |
+| 档 1 typecheck | ✅ `tools/rocq-of-rust-typecheck` | ✅ feasibility 实测 |
+| 档 2 auto evaluate | ❌ **架构上不可达** | ✅ `#eval` 实测 |
+| 档 2 半人工 lemma | ⚠️ per-entry 5–50 行手工证明 | — |
+| 档 3 与 Rust 一致 | ❌ 除非档 2 解决 | ✅ byte-identical 实测 |
+
+**项目决策**：
+
+- **投入档 1 自动化**（已上线 `tools/rocq-of-rust-typecheck`）。
+- **不投入档 2/3 自动化**：per-entry 手工证 vs corpus ~150 entries 规模严重不匹配。这是 ror **设计选择**（deep embedding 为形式证明优化），不是 bug。
+- 严格说，本工具（rocq-of-rust 档 0）测的是"翻译产物在 Coq 里是有效的 Coq 项"——**结构正确，语义不验证**；语义验证属于 ror 上游"link + simulate"人工证明工作流，超出本 testsuite "特性覆盖广度筛选"任务范围。
+
 ## 已知限制 / 坑
 
 - **静默吞错**：工具无 `--abort-on-error` 等价旗标，遇不支持的构造不报 exit 非 0，必须依赖 grep 检测 `.v` 文件中的占位注释来识别翻译失败。
@@ -93,6 +127,21 @@ N-attempt（默认 N=7，可通过 `ROCQ_OF_RUST_N_ATTEMPTS` env 覆盖）封堵
 - **toolchain 锁定**：必须使用 nightly-2024-12-07 构建 binary 并在运行时注入对应 sysroot；换 toolchain 需重新 `cargo install`。
 - **输出路径结构**：`--output-path` 指定目录后，输出路径为 `<output-path>/<绝对输入路径>.v`，需提前 `mkdir -p`。
 - **翻译质量**：Rust 语言特性覆盖不完整，复杂 trait 实现、`unsafe` 指针操作、宏展开后的代码等易触发占位注释。
+
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon）。
+
+**平台特定配置**：
+
+- `rocq-of-rust-wrapper.sh` 内 `export DYLD_LIBRARY_PATH="$SYSROOT/lib"`（macOS-specific dynamic linker 变量，让 `librustc_driver-*.dylib` 可被解析）
+- `version_command` 同样使用 `DYLD_LIBRARY_PATH`
+- `.env` 中 `TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 期望指向 `nightly-2024-12-07-aarch64-apple-darwin` toolchain 目录
+- 用户可通过修改 wrapper 适配其他平台：
+  - Linux：`DYLD_LIBRARY_PATH` 改为 `LD_LIBRARY_PATH`，`TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 改指向对应 Linux toolchain（如 `nightly-2024-12-07-x86_64-unknown-linux-gnu`）
+  - macOS x86_64：`DYLD_LIBRARY_PATH` 不变，`TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 改指向 `nightly-2024-12-07-x86_64-apple-darwin`
+
+未在 Linux / Windows / macOS x86_64 上测试。
 
 ## 关联 sub-tests
 

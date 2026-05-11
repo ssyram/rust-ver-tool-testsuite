@@ -1,5 +1,7 @@
 # rocq-of-rust-typecheck 实施（档 1 接入）— 2026-05-11
 
+> **派生链**：前序 [`oracle-leak-rules-implementation-2-2026-05-11.md`](oracle-leak-rules-implementation-2-2026-05-11.md)（P13 implementation-2）→ **本文** → 后续 [`ror-gate6-fix-2026-05-11.md`](ror-gate6-fix-2026-05-11.md)（反向暴露档 0 gate 6 漏报修复）
+
 > 上游调研：`docs/research/ror-runnable-deep-dive-2026-05-11.md`（认为档 1 可达；档 2/3 不适合 testsuite 自动化）
 > 上层调研：`docs/research/translation-correctness-feasibility-2026-05-11.md`
 > 工作目录：`/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/`
@@ -171,6 +173,8 @@ run id: `runs/run-1778473345-64581/`（2026-05-11T04:22:25Z, ~9 s wall, 10-way p
 **根因推断**：可能是 `tools/rocq-of-rust/tool.toml` 把所有 gate 串在一个 `sh -c` `if/elif` 链里，某些 corner case 下 sh expansion 与 wrapper.sh 不一致。这是 `tools/rocq-of-rust` 的一个**潜在 oracle 漏报**，**不在本任务范围**（本任务只实施档 1，不动档 0 配置）。
 
 **对本任务的意义**：差异 1 是测试范围本来就重叠的副产品，**不**是档 1 实际暴露了"档 0 SUCCESS 但 coqc typecheck failed"的 ror 翻译 bug。所有真正进入 Stage 2 的产物都 coqc 编译通过——说明 ror 当前在 typecheck 层稳定。
+
+> **更正（2026-05-11 后续）**：本文当时推断的"sh chain expansion"根因被 [`ror-gate6-fix-2026-05-11.md`](ror-gate6-fix-2026-05-11.md) §2 实测推翻——真正根因是 rocq-of-rust 翻译器在 `thread_local!` 宏 entry 上输出非确定性（30 次手测 P(drop)=0.6），单次 oracle 采样 SUCCESS / FAILED 随机切换。已通过 N=7 attempts + AND-reduce 在 P16 commit 修复。
 
 ## 反误报双向实测
 

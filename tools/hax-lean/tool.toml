@@ -11,9 +11,32 @@
 # - 必要：抓 sorry **只在 term 位置**（`:= sorry` / `pure sorry` / `mk sorry` /
 #   `, sorry` / `sorry,` / `sorry)` / `sorry]`），**不**抓 binder 位置（`let sorry :`
 #   是用户合法变量名，不是 partial）
+#
+# 第二轮 oracle 漏报封堵（2026-05-11，P17 D1）追加：源码层 silent-skip-item 路径
+#   `rust-engine/src/backends/lean.rs:1521 ItemKind::RustModule | ItemKind::Use { .. } => nil!()`
+# 让 `Use` 类型的 item（Rust 顶级 `use foo;` 声明）渲染为空 document，**既不写定义也
+# 不发 Diagnostic**，cargo hax exit 0。fn item 本身经 ItemKind::Fn 必走 `def <name>`
+# / `opaque <name>`（lean.rs:1472），但理论窗口：hax phases 可能把 fn 重写为 Use
+# kind（与 hax-fstar fstar_backend.ml:1771 `Use _ | NotImplementedYet -> []` /
+# hax-coq coq_backend.ml:588 `item'_NotImplementedYet` 同形态）。
+#
+# 新增 gate：grep entry_fn 在 .lean 中是否有 `def <fn>` / `opaque <fn>` 定义。
+# 命名约定（lean.rs:1472 实测）：fn item 顶格输出 `def <name> (` 或 `opaque <name> (`
+# 在 `namespace <crate>` 内部不缩进；mutual rec / ResugaredItemKind::RecursiveFn /
+# Constant 同样走 `def <name>`（lean.rs:1919/1944-1955）。
+#
+# runner expand_env 陷阱：tool.toml 内必须用 `$TS_ENTRY_FN`（无 `{}`）而非
+# `${TS_ENTRY_FN}`。runner 的 expand_env 把 `${VAR}` 形式在 TOML parse 时展开
+# 为运行时 env var；但 `TS_ENTRY_FN` 在 runner 启动时不存在（仅在 spawn child
+# 前才注入），所以 `${TS_ENTRY_FN}` 会被展开为空串。`$TS_ENTRY_FN` 形式对
+# runner 不展开（只匹配 `${...}`），交给 sh 执行时的 shell 展开。
+#
+# See: docs/fixes/hax-lean-silent-skip-fix-2026-05-11.md §2-§4
+#      docs/fixes/oracle-leak-audit-2-2026-05-11.md §4.4
+#      docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md §2.2, §2.3
 command = [
   "sh", "-c",
-  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into lean; rc=$?; if [ $rc -eq 0 ]; then if find proofs/lean/extraction -name '*.lean' -exec cat {} + 2>/dev/null | awk '{ sub(/--.*/, \"\"); print }' | grep -qE '(:=|pure|mk|,)[[:space:]]*sorry\\b|\\bsorry[[:space:]]*[,)\\]]'; then echo '[hax-lean-oracle] FAIL: silent partial — sorry in term position (lean.rs:1287/2163 PatKind::Error / error_node path)' >&2; rc=1; fi; fi; exit $rc"
+  "env HAX_ENGINE_BINARY=${TS_HAX_ENGINE_BIN} cargo +nightly-2025-11-08 hax -C --lib ';' into lean; rc=$?; if [ $rc -eq 0 ]; then if find proofs/lean/extraction -name '*.lean' -exec cat {} + 2>/dev/null | awk '{ sub(/--.*/, \"\"); print }' | grep -qE '(:=|pure|mk|,)[[:space:]]*sorry\\b|\\bsorry[[:space:]]*[,)\\]]'; then echo '[hax-lean-oracle] FAIL: silent partial — sorry in term position (lean.rs:1287/2163 PatKind::Error / error_node path)' >&2; rc=1; elif [ -n \"$TS_ENTRY_FN\" ] && ! grep -rqE \"^(def|opaque)[[:space:]]+$TS_ENTRY_FN([[:space:]]|\\()\" proofs/lean/extraction/ 2>/dev/null; then echo \"[hax-lean-oracle] FAIL: entry_fn '$TS_ENTRY_FN' missing from .lean products (silent skip — lean.rs:1521 Use/RustModule path; see docs/fixes/hax-lean-silent-skip-fix-2026-05-11.md)\" >&2; rc=1; fi; fi; exit $rc"
 ]
 timeout_secs    = 600
 version_command = [

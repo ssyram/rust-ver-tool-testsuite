@@ -86,4 +86,4 @@ verus! {
 
 本工具未派生限制集 agent，无 `examples/verus-limit/`。
 
-plain Rust 样例预期 SUCCESS（`0 verified, 0 errors`，exit 0）。类型错误样例预期 FAILED（exit 1）。
+plain Rust 样例预期 SUCCESS（`0 verified, 0 errors`，exit 0）—— 限定：**plain Rust 不调用 Verus 无 `assume_specification` 的 std API**（如 `String::from` / `Any` trait / `Box::clone` 等会被 Verus 整体拒收，详 §"Pipeline 阶段" 真实失败常见来源段）。调用 std API 的 plain Rust 样例预期 FAILED；类型错误样例预期 FAILED（exit 1）。

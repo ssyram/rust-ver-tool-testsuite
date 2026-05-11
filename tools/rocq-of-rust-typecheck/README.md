@@ -135,14 +135,63 @@ git clone https://github.com/formal-land/rocq-of-rust.git
 
 **与 tools/rocq-of-rust 的关系**：本工具是档 1 的严格上层包裹。Stage 1 与 `tools/rocq-of-rust/tool.toml` 等价（同 6 道 grep）；Stage 2 是新增。因此**任一 entry 在本工具 SUCCESS ⇒ 在 `tools/rocq-of-rust` SUCCESS**（档 1 ≤ 档 0）；反过来一个 entry 可能 ror 档 0 SUCCESS 但 coqc 编不过——这种 entry **暴露 ror 翻译的 silent typecheck bugs**（产物落盘但 Rocq 内部不接受）。
 
+## 与 hax-lean 的可运行性对比 / 档 2/3 架构上不可达
+
+本工具实现档 1（typecheck）；档 2/3（evaluate / 与 Rust 一致）**架构上不可达**。详见 [`docs/research/ror-runnable-deep-dive-2026-05-11.md`](../../docs/research/ror-runnable-deep-dive-2026-05-11.md)。
+
+**深嵌入 vs 浅嵌入（核心差异）**：
+
+- **ror 产物 = deep embedding**。`Definition fn (a b : Value.t) : M.t LowM.t (Value.t + Exception.t) := ...`，`Value.t` 为 inductive 包装类型，`M` 为 effect monad，所有 op（`alloc` / `read` / `call_closure` / `call_primitive`）是 inductive constructor，无 Compute 语义。`vm_compute` / `native_compute` 在 axiom-laden `Run.t` proof tree 上 SIGSEGV。
+- **hax-lean 产物 = shallow embedding**（参考定位）。`def fn (a b : Int32) : RustM Int32 := RustM.ok (a + b)`，Lean `#eval` 一行出值。
+
+**ror 上游"官方运行模式"**（不是 native compute）：
+
+- API：`SimulateM.eval` / `SimulateM.eval_f`（`simulate/M.v:343 / 445`）。
+- 性质：**propositional 解释器**。
+- 输入：`LinkM.t R Output` + 需要 `Run.Trait` 实例（用户用 `run_symbolic` tactic 推导）。
+- 输出：`SimulateM.t` inductive，**不是** native `Z`。
+- 与"值"关系：propositional（`🌲` = `Run.t`），用 `repeat (eapply Run.Call || apply Run.Pure)` 证明；递归 fn 需手工 well-founded induction。
+- 性能：per-entry **5–50+ 行手工 Coq tactic**。
+
+**档可达性总结表**：
+
+| 档 | ror | hax-lean |
+| --- | --- | --- |
+| 档 0 前端接受 | ✅ `tools/rocq-of-rust` | ✅ `tools/hax-lean` |
+| 档 1 typecheck | ✅ **本工具（rocq-of-rust-typecheck）** | ✅ feasibility 实测 |
+| 档 2 auto evaluate | ❌ **架构上不可达** | ✅ `#eval` 实测 |
+| 档 2 半人工 lemma | ⚠️ per-entry 5–50 行手工证明 | — |
+| 档 3 与 Rust 一致 | ❌ 除非档 2 解决 | ✅ byte-identical 实测 |
+
+**项目决策**：
+
+- **投入档 1 自动化**：本工具上线，9 道 gate（档 0 的 6 道 + coqc exit/产物/stderr 3 道）。
+- **不投入档 2/3 自动化**：per-entry 手工证 vs corpus ~150 entries 规模严重不匹配；ror 上游设计哲学就是"把语义留作用户 proof obligation"（产物头部明确带 `Admitted.`），自动化"运行"违背工具意图。
+- 严格说，本工具测的是"翻译产物在 Coq 里是有效的 Coq 项"——**结构正确，语义不验证**。`Admitted.` 占位通过 typecheck 是档 1 的诚实边界，不是 oracle 漏报。
+
 ## 已知限制 / 坑
 
 - **runtime path 必须为绝对路径**：wrapper 用 `coqc -R "$ROR_RUNTIME_PATH" RocqOfRust`，相对路径会因 wrapper 在 example workdir 下 cd 而失效
 - **switch 名假定 = "ror-test"**：可改但需对应改 `.env` 的 `TS_ROR_TYPECHECK_SWITCH`
 - **runtime bootstrap 是 destructive on first call**：在 `$ROR_RUNTIME_PATH` 下写入 9 个 `.vo` —— 但只写入缺失的，是幂等的
 - **coqc binary 来自 opam switch**：wrapper 用 `eval $(opam env --switch=...)` activate；若用户机器没装 opam，gate 失败显式报错
-- **macOS-only 测试**：基线在 Apple M5 / darwin 25.4.0；Linux 应该 work 但未实测
 - **不测 evaluate / 一致性**：本工具**只**测 typecheck（档 1）。ror 档 2/3 是 per-entry proof engineering，与"特性覆盖广度筛选" testsuite 任务严重不匹配——参 `docs/research/ror-runnable-deep-dive-2026-05-11.md` §6 / §7
+
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon），基线 Apple M5 / darwin 25.4.0。
+
+**平台特定配置**：
+
+- `rocq-of-rust-typecheck-wrapper.sh` 内 `export DYLD_LIBRARY_PATH="$SYSROOT/lib"`（macOS-specific dynamic linker 变量，让 rocq-of-rust 找到 `librustc_driver-*.dylib`；同 `tools/rocq-of-rust`）
+- `version_command` 同样使用 `DYLD_LIBRARY_PATH`
+- `.env` 中 `TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 期望指向 `nightly-2024-12-07-aarch64-apple-darwin` toolchain 目录
+- `TS_ROR_TYPECHECK_SWITCH` opam switch 与 `TS_ROR_RUNTIME_PATH` 由用户控制；opam 本身跨平台
+- 用户可通过修改 wrapper 适配其他平台：
+  - Linux：`DYLD_LIBRARY_PATH` 改为 `LD_LIBRARY_PATH`，`TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 改指向对应 Linux toolchain
+  - macOS x86_64：`DYLD_LIBRARY_PATH` 不变，sysroot 改 `nightly-2024-12-07-x86_64-apple-darwin`
+
+未在 Linux / Windows / macOS x86_64 上测试。
 
 ## 关联 sub-tests
 

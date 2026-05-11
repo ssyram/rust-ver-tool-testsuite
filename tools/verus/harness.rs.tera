@@ -16,6 +16,6 @@ verus! {
     #[allow(dead_code)]
     #[verifier::external]
     fn __ts_invoke() {
-        __ts_inner::{{ entry_fn }}();
+        let _ = __ts_inner::{{ entry_fn }}({{ entry_args }});
     }
 }

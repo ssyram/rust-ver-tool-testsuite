@@ -56,6 +56,17 @@ Charon 是**纯翻译工具**，pipeline 终点就是 LLBC——不调用任何 
 - `--abort-on-error` 不可省：实测若缺少此 flag，某些无法翻译的特性（如部分 trait object drop glue）charon 内部 panic 后仍 exit 0，框架会误报 SUCCESS
 - charon 翻译的是 MIR 语义子集，某些 unsafe / raw pointer / 高阶生命周期构造超出其翻译域，会 exit 非 0
 
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon）。
+
+**平台特定配置**：
+
+- `tool.toml` 中 `--target aarch64-apple-darwin`（macOS arm64 上 charon 对 bin rlib 路径假设错误，必须配 `--lib --target aarch64-apple-darwin` 绕开）
+- 用户可通过修改 `tool.toml` 适配其他平台：Linux x86_64 改为 `--target x86_64-unknown-linux-gnu`、macOS x86_64 改为 `--target x86_64-apple-darwin` 等
+
+未在 Linux / Windows / macOS x86_64 上测试。
+
 ## 关联 sub-tests
 
 `examples/charon-limit/` 是本工具自声明的限制集——这些 entry 故意触发 charon 的"不支持"特性，期望本工具在这些 entry 上 FAILED。

@@ -57,6 +57,17 @@ Charon 是**纯翻译工具**，pipeline 终点就是 LLBC——不调用任何 
 - macOS arm64 同样必须加 `--lib --target aarch64-apple-darwin`
 - 高阶生命周期、部分 unsafe raw pointer 等超出 charon 翻译域，exit 非 0
 
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon）。
+
+**平台特定配置**：
+
+- `tool.toml` 中 `--target aarch64-apple-darwin`（同 charon-poly，因 macOS arm64 上 charon 对 bin rlib 路径有错误假设，配 `--lib` 一并绕开）
+- 用户可通过修改 `tool.toml` 适配其他平台：Linux x86_64 改为 `--target x86_64-unknown-linux-gnu`、macOS x86_64 改为 `--target x86_64-apple-darwin` 等
+
+未在 Linux / Windows / macOS x86_64 上测试。
+
 ## 关联 sub-tests
 
 `examples/charon-limit/` 是本工具自声明的限制集——这些 entry 故意触发 charon 的"不支持"特性，期望本工具在这些 entry 上 FAILED。

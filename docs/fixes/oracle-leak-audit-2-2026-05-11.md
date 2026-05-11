@@ -1,5 +1,7 @@
 # Oracle 漏报扩展审计：其他 16 工具（2026-05-11）
 
+> **派生链**：前序 [`oracle-leak-rules-implementation-2026-05-08.md`](oracle-leak-rules-implementation-2026-05-08.md)（P12 implementation-1）→ **本文** → 后续 [`oracle-leak-rules-implementation-2-2026-05-11.md`](oracle-leak-rules-implementation-2-2026-05-11.md)（P13 implementation-2）
+
 > 第二轮 oracle 漏报扩展审计。前一轮（[`oracle-leak-audit-2026-05-08.md`](oracle-leak-audit-2026-05-08.md)）聚焦 verifast / prusti / rocq-of-rust，P12（[`oracle-leak-rules-implementation-2026-05-08.md`](oracle-leak-rules-implementation-2026-05-08.md)）已封堵。本轮覆盖剩余 16 工具：aeneas × 4 / charon × 2 / hax × 3 / cargo-check / kani / verus / creusot / miri / kmir / soteria。
 >
 > 本报告**不修改任何 tool.toml / cc-report / 实施代码**，只产出审计结论 + 推荐封堵规则。每条结论锚定 `runs/run-1778226613-5282/results.json`（146 entries × 19 工具，UTC 2026-05-08）+ raw stdout/stderr + 工具源码（hax-engine opam switch installed 源 `~/.opam/default/.opam-switch/sources/hax-engine/`）。

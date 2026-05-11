@@ -31,6 +31,19 @@ pub struct Example {
     pub crate_name: String,
     /// Entry function names registered in the example's config.
     pub entries: Vec<String>,
+    /// Per-entry default call arguments rendered as a Rust expression list
+    /// (e.g., `"3i32, 4i32"` for an `add_two(a: i32, b: i32)` entry whose
+    /// hirusttest.toml declares `[runnable.add_two] inputs = [[3, 4], …]`).
+    /// Filled from `inputs[0]` of the `[runnable.<entry>]` table (single-file
+    /// track only; see detailed-design.md §一). Entry not in the map → its
+    /// harness invocation must remain zero-arg (back-compat: 146 non-runnable
+    /// entries continue unchanged).
+    ///
+    /// Each Tera context insert at exec time uses the looked-up value; empty
+    /// string when the entry has no runnable table. Without this, every
+    /// runnable-corpus invocation mechanically failed on bin-mode tools as
+    /// E0061 (cf. false-positive-audit-2026-05-11.md §2.1 / §4.1 — 134 FPs).
+    pub entry_args: std::collections::HashMap<String, String>,
     /// Which schema track this example was discovered as. Read by future
     /// exec-stage stub injection (P-future); currently observable but unused
     /// — silence dead-code until the consumer lands.
@@ -44,14 +57,38 @@ pub struct Example {
 }
 
 /// Common config schema shared by both tracks. v1 only reads `entries` +
-/// `target_path`; the directory track reserves additional fields
-/// (`entry_overrides`, `tools.<name>`, ...) for future extensions. We do not
-/// set `deny_unknown_fields`, so unknown keys are silently accepted — extension
-/// fields can land in `.hirusttest/config.toml` without breaking deserialize.
+/// `target_path` + `runnable.<entry_fn>`; the directory track reserves
+/// additional fields (`entry_overrides`, `tools.<name>`, ...) for future
+/// extensions. We do not set `deny_unknown_fields`, so unknown keys are
+/// silently accepted — extension fields can land in `.hirusttest/config.toml`
+/// without breaking deserialize.
 #[derive(Deserialize)]
 struct HirusttestToml {
     entries: Vec<String>,
     target_path: Option<String>,
+    /// Optional `[runnable.<entry_fn>] inputs = [...] expected = [...]` table.
+    /// See detailed-design.md §一 for the full schema. v1 reads `inputs[0]`
+    /// as the default argument tuple for the harness call site, so
+    /// bin-mode tools can compile their harness against runnable entries
+    /// (whose fns take arguments) instead of failing with E0061.
+    #[serde(default)]
+    runnable: std::collections::HashMap<String, RunnableSpec>,
+}
+
+/// `[runnable.<entry_fn>]` section. Only `inputs` is consumed by the runner
+/// for harness rendering today; `expected` is reserved for future consistency
+/// tooling (cf. hax-lean-consistency-design-2026-05-11.md §2).
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct RunnableSpec {
+    /// Each inner array is one set of actual arguments matching the fn
+    /// signature order. v1 uses `inputs[0]` only.
+    inputs: Vec<toml::Value>,
+    /// Expected return value per inputs row. Read by future consistency
+    /// tools, not by this runner (kept here so the field doesn't get
+    /// rejected if `deny_unknown_fields` is ever enabled).
+    #[serde(default)]
+    expected: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +208,27 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
         let ts: HirusttestToml = toml::from_str(&ts_text)
             .with_context(|| format!("parsing {}", config_path.display()))?;
 
+        // entries must be non-empty. Per detailed-design.md §一: `entries =
+        // ["fn_name_1", ...]` is documented as "必填，零参 pub fn 名列表";
+        // `[runnable.<entry>]` sub-tables (line ~78) only *extend* an entry
+        // that already appears in `entries`, they never create one. An empty
+        // `entries = []` therefore produces zero tasks silently, which is a
+        // config bug per design §七 ("配置 bug, 不该静默"). Fail at discover.
+        if ts.entries.is_empty() {
+            return Err(anyhow!(
+                "{}: `entries` must be non-empty (an example must register at least one pub fn name)",
+                config_path.display()
+            ));
+        }
+
+        // Canonicalize example.root so we can test containment in absolute,
+        // symlink-resolved form. dir itself comes from the walker and may
+        // contain unresolved symlinks; without canonicalize, starts_with
+        // would compare apples to oranges with the canonicalized target_dir.
+        let root_canon = dir.canonicalize().with_context(|| {
+            format!("canonicalizing example root {}", dir.display())
+        })?;
+
         let target_rel = ts.target_path.as_deref().unwrap_or(".");
         let target_dir = dir.join(target_rel).canonicalize().with_context(|| {
             format!(
@@ -179,6 +237,21 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
                 dir.display()
             )
         })?;
+
+        // target_path must resolve to a subdirectory of example.root. Without
+        // this check, `target_path = "../../escape"` escapes the isolated copy
+        // and exec stage only catches it via strip_prefix as UNKNOWN — design
+        // (detailed-design.md §三, architecture.md §四) requires Err at
+        // discover.
+        if !target_dir.starts_with(&root_canon) {
+            return Err(anyhow!(
+                "{}: target_path '{}' resolves to {} which is not under example root {}",
+                config_path.display(),
+                target_rel,
+                target_dir.display(),
+                root_canon.display(),
+            ));
+        }
 
         let cargo_path = target_dir.join("Cargo.toml");
         let cargo_text = fs::read_to_string(&cargo_path)
@@ -212,6 +285,42 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
         }
         let dir_name = rest.join("/");
 
+        // Build entry_args map from any [runnable.<entry>] tables. We render
+        // inputs[0] as a comma-separated list of Rust literal expressions so
+        // every harness template that calls `{{ entry_fn }}({{ entry_args }})`
+        // compiles regardless of whether the fn takes args or not.
+        //
+        // Type matrix per detailed-design.md §一 ("类型支持矩阵"):
+        //   integers (i*/u*) → `<n>{type}` chosen by signature (we don't see
+        //     the fn signature here; emit untyped numeric literals — Rust
+        //     does fn-arg inference, so `add_two(3, 4)` works for any
+        //     concrete integer type the fn declares). Negative numbers render
+        //     as `-N` (toml integer is i64-domain).
+        //   bool → `true` / `false`
+        //   v1 disallows other types; we still accept them silently so a
+        //     future runnable test with a struct argument can stop being a
+        //     hard-error before its consumer lands.
+        let mut entry_args = std::collections::HashMap::new();
+        for entry_name in &ts.entries {
+            if let Some(spec) = ts.runnable.get(entry_name) {
+                let row = spec.inputs.first().ok_or_else(|| {
+                    anyhow!(
+                        "{}: [runnable.{}].inputs must have at least one row",
+                        config_path.display(),
+                        entry_name
+                    )
+                })?;
+                let args = render_runnable_row_as_rust_args(row).with_context(|| {
+                    format!(
+                        "{}: rendering [runnable.{}].inputs[0] as Rust args",
+                        config_path.display(),
+                        entry_name
+                    )
+                })?;
+                entry_args.insert(entry_name.clone(), args);
+            }
+        }
+
         result.push(Example {
             feature,
             dir: dir_name,
@@ -219,6 +328,7 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
             target_path: target_dir,
             crate_name: cargo.package.name,
             entries: ts.entries,
+            entry_args,
             schema_kind,
             hirusttest_dir,
         });
@@ -227,6 +337,32 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
         (a.feature.as_str(), a.dir.as_str()).cmp(&(b.feature.as_str(), b.dir.as_str()))
     });
     Ok(result)
+}
+
+/// Render one `inputs` row (a TOML array of scalars) as a Rust argument
+/// expression string suitable for splicing into `fn_name({{ entry_args }})`.
+/// Supports the v1 runnable type matrix (i*/u*/bool); rejects strings /
+/// tables / nested arrays (Tera output would fail to compile and cargo would
+/// expose it as a hard error — preferable to silent skip).
+fn render_runnable_row_as_rust_args(row: &toml::Value) -> Result<String> {
+    let items = row
+        .as_array()
+        .ok_or_else(|| anyhow!("inputs row must be a TOML array; got {:?}", row.type_str()))?;
+    let mut parts = Vec::with_capacity(items.len());
+    for v in items {
+        let rendered = match v {
+            toml::Value::Integer(n) => n.to_string(),
+            toml::Value::Boolean(b) => b.to_string(),
+            other => {
+                return Err(anyhow!(
+                    "inputs element type `{}` is not in the v1 runnable type matrix (i*/u*/bool)",
+                    other.type_str()
+                ));
+            }
+        };
+        parts.push(rendered);
+    }
+    Ok(parts.join(", "))
 }
 
 /// Where to render the harness inside the working copy.
@@ -361,6 +497,34 @@ pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
                 dir.display(),
                 tool_toml_path.display()
             ));
+        }
+        // Validate `extra_cargo_deps` at discover time. Each entry is a single
+        // TOML key=value fragment (e.g. `creusot-std = "0.11.0"`); exec stage
+        // splices it into the working-copy Cargo.toml via toml_edit. Per
+        // detailed-design.md §七 ("Schema 解析失败 ... → discover 阶段 panic"),
+        // bad TOML in tool.toml is a config bug and must surface before any
+        // task is launched, not as a per-task UNKNOWN later.
+        for dep_line in &parsed.extra_cargo_deps {
+            let parsed_dep: toml_edit::DocumentMut = dep_line
+                .parse()
+                .with_context(|| {
+                    format!(
+                        "{}: extra_cargo_deps entry `{}` is not valid TOML",
+                        tool_toml_path.display(),
+                        dep_line
+                    )
+                })?;
+            // A well-formed entry contributes at least one top-level key
+            // (the dependency name). An entry that parses but contributes no
+            // keys (e.g. an empty string, a stray comment) is also a config
+            // bug — patch_cargo_deps would silently do nothing.
+            if parsed_dep.as_table().iter().next().is_none() {
+                return Err(anyhow!(
+                    "{}: extra_cargo_deps entry `{}` declares no dependency key",
+                    tool_toml_path.display(),
+                    dep_line
+                ));
+            }
         }
         let template = fs::read_to_string(&harness_path)
             .with_context(|| format!("reading {}", harness_path.display()))?;

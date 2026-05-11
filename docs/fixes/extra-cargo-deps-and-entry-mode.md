@@ -1,5 +1,7 @@
 # 修正方案：`extra_cargo_deps` + `entry_mode` 引入
 
+> **派生链**：**本文** → 后续 [`oracle-leak-audit-2026-05-08.md`](oracle-leak-audit-2026-05-08.md)（P12 oracle 漏报审计）
+
 集成 Creusot 时遇到的两个互锁问题。两次都涉及 `tool.toml` schema 扩展并触及原则 A 的位阶解读，按 workflow §5.1 把"复现 / 根因 / 参考实现 / 修正方案"四节沉淀于此。
 
 ---

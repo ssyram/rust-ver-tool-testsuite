@@ -51,7 +51,7 @@
 
 - 单门 exit code：cargo-check / miri / kani / verus / charon×2 / soteria / prusti / creusot / verifast / aeneas×4
 - exit + stdout grep：kmir 抓 `#EndProgram ~> .K`（K 终止 signature）
-- exit + 产物 grep：hax-{coq,fstar,lean} 抓 sentinel sorry / `failure ((` / `please implement the method`；rocq-of-rust 5 道门（exit + `.v` 存在 + 非 0-byte + > 200 字节 + 5-marker grep）
+- exit + 产物 grep：hax-{coq,fstar,lean} 抓 sentinel sorry / `failure ((` / `please implement the method`；rocq-of-rust 6 道门 + N=7 attempts AND-reduce（exit + `.v` 存在 + 非 0-byte + > 200 字节 + 5-marker grep + entry_fn `Definition` 存在性；P15 引入 gate 6 + N-attempt wrapper）
 
 aeneas 的"产物 partial 但 exit 0"理论上是 silent path，但实测 aeneas 的 `Errors.error_list` 与 `craise` 把所有 unsupported 推 exit ≠ 0——单门 exit 即够。
 
@@ -433,7 +433,7 @@ verifast / prusti / rocq-of-rust 三栏数据来自 v2 P12-B 重跑（`run-17782
 
 7.3 **"工具自陈限制集"在该工具自己上不一定全 fail**：
 - prusti-limit 8 条在 prusti 上 1/8（设计意图实现：prusti 期望失败的样例真 fail 7 个）
-- kani-limit 7 条在 kani 上 7/7（kani --only-codegen 切割点早于 kani 自陈的 unsupported——这些 unsupported 在 CBMC 求解阶段才显现）
+- kani-limit 7 条在 kani 上 6/7（P13 改造前老结论是 7/7；P13 wrapper 5-marker grep 后 stack-unwinding 翻 FAILED，其余 6/7 仍过——kani --only-codegen 切割点早于 kani 自陈的 unsupported，多数 unsupported 在 CBMC 求解阶段才显现）
 - miri-limit 7 条在 miri 上 6/7（只有 networking 触发了 miri 的 isolation reject，其余 6 条在 miri 上其实都过；fail 的反而散在其他 corpus）
 - aeneas-limit 8 条在 aeneas-coq/fstar/lean 上 4/8（半数预期 fail）
 

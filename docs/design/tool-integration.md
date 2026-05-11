@@ -27,7 +27,7 @@
 - **exit code 单一信号**（如 cargo-check / kani / verus / aeneas / charon）
 - **exit code + 产物字面 grep**（如 hax × 3 / rocq-of-rust）
 - **exit code + stderr 模式 grep**（如 kmir 的 `#EndProgram ~> .K`）
-- **多门组合**（如 rocq-of-rust 的 5 道门：exit 0 + 至少一个 .v + 无 0-byte + > 200B + 无 silent marker）
+- **多门组合**（如 rocq-of-rust 的 6 道门：exit 0 + 至少一个 .v + 无 0-byte + > 200B + 无 silent marker + entry_fn `Definition` 存在性；P15 引入 gate 6 + N=7 attempts AND-reduce）
 
 工具用何种形式指标由工具自身设计决定（按宪法 §三-3-2.a），但必须在 README 显式列出。
 

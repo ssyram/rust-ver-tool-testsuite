@@ -48,13 +48,19 @@ echo "[aeneas-hol4-wrapper] found llbc: $LLBC_FILE"
 HOL4_OUT="$(pwd)/hol4-out"
 mkdir -p "$HOL4_OUT"
 echo "[aeneas-hol4-wrapper] stage 2: aeneas -backend hol4"
+# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
+# 导致下面的诊断行（[aeneas-hol4-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+set +e
 "$AENEAS_BIN" -backend hol4 -dest "$HOL4_OUT" "$LLBC_FILE"
 AENEAS_EXIT=$?
+set -e
 echo "[aeneas-hol4-wrapper] aeneas exit: $AENEAS_EXIT"
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-hol4-wrapper] generated hol4 files:"
     find "$HOL4_OUT" -name "*.sml" -o -name "*.thy" | sort
+else
+    echo "[aeneas-hol4-oracle] FAIL: aeneas exit $AENEAS_EXIT" >&2
 fi
 
 exit $AENEAS_EXIT

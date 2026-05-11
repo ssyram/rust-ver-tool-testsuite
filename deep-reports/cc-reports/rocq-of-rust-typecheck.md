@@ -193,3 +193,37 @@ SUCCESS 时长 ≈ rocq-of-rust translate (~50-100 ms) + coqc -R RocqOfRust 编�
 - **配对档 0 工具**：`tools/rocq-of-rust`
 - **配对档 1 工具**（其他翻译类）：暂无；hax × 3 / aeneas × 4 都目前停留在档 0
 - **该工具的独立性**：本工具独立测试一项可形式 attribute"档 1 typecheck 通过"，与档 0 通过率配对呈现可暴露 ror 翻译的"档 0 落盘 ≠ 档 1 typecheck 接受"现象（本 corpus 上 0 现象，意味 ror 在 typecheck 层 OK）。
+
+## 翻译产物可运行性
+
+本工具实现 ror 档 1（产物 typecheck）。档 2/3（evaluate / 与 Rust 一致）**架构上不可达**——这是 ror **设计选择**，不是 bug。详见 [`../../docs/research/ror-runnable-deep-dive-2026-05-11.md`](../../docs/research/ror-runnable-deep-dive-2026-05-11.md)。
+
+**深嵌入 vs 浅嵌入**：
+
+- **ror 产物 = deep embedding**：`Definition fn (a b : Value.t) : M.t LowM.t (Value.t + Exception.t) := ...`，`Value.t` 是 inductive 包装类型，`M` 是 effect monad，所有 op（`alloc` / `read` / `call_closure` / `call_primitive`）是 inductive constructor，**无 Compute 语义**。`vm_compute` / `native_compute` 在 axiom-laden `Run.t` proof tree 上 SIGSEGV。
+- **hax-lean 产物 = shallow embedding**（对照）：`def fn (a b : Int32) : RustM Int32 := RustM.ok (a + b)`，Lean `#eval fn 3 4` 一行直接出值。
+
+**ror 上游"官方运行模式"**：
+
+- API：`SimulateM.eval` / `SimulateM.eval_f`（`simulate/M.v:343 / 445`）
+- 性质：**propositional 解释器**，不是 native compute
+- 输入：`LinkM.t R Output` + 需要 `Run.Trait` 实例（用户用 `run_symbolic` tactic 推导）
+- 输出：`SimulateM.t` inductive，**不是** native `Z`
+- 与"值"关系：propositional（`🌲` = `Run.t`），用 `repeat (eapply Run.Call || apply Run.Pure)` 证明
+- 性能：per-entry **5–50+ 行手工 Coq tactic**；递归 fn 需手工 well-founded induction
+
+**档可达性总结表**：
+
+| 档 | ror | hax-lean |
+| --- | --- | --- |
+| 档 0 前端接受 | ✅ `tools/rocq-of-rust` | ✅ `tools/hax-lean` |
+| 档 1 typecheck | ✅ **本工具（rocq-of-rust-typecheck）** | ✅ feasibility 实测 |
+| 档 2 auto evaluate | ❌ **架构上不可达** | ✅ `#eval` 实测 |
+| 档 2 半人工 lemma | ⚠️ per-entry 5–50 行手工证明 | — |
+| 档 3 与 Rust 一致 | ❌ 除非档 2 解决 | ✅ byte-identical 实测 |
+
+**项目决策**：
+
+- 投入档 1 自动化（**本工具**，9 道 gate = 档 0 的 6 道 + coqc exit / 产物 / stderr 3 道）
+- 不投入档 2/3 自动化：per-entry 手工证 vs corpus ~150 entries 规模严重不匹配；ror 上游设计哲学就是"语义留作用户 proof obligation"（产物头部 `Admitted.` 已声明该立场）
+- 严格说，本工具测的是"翻译产物在 Coq 里是有效的 Coq 项"——**结构正确，语义不验证**。`Admitted.` 占位通过 typecheck 是档 1 诚实边界，与档 2/3 范畴严格区分。

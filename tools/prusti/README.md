@@ -95,6 +95,22 @@ GitHub: https://github.com/viperproject/prusti-dev
 - entry 仅触及通用 Rust 特性（无 spec、无 closures、无 unsafe）时，
   encoder 通常接受，与“Prusti 是否能正确验证此函数”无关——**这是预期行为**
 
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon），通过 Rosetta 跑 x86_64 工具链。
+
+**平台特定配置**：
+
+- `tool.toml` 中 `RUSTUP_TOOLCHAIN=nightly-2023-08-15-x86_64-apple-darwin`（toolchain triple 含平台）
+- `prusti-strict-wrapper.sh` 顶层 `arch -x86_64 "$CARGO_PRUSTI"`（macOS-specific Rosetta 调用，强制 x86_64 模式启动子进程）
+- `version_command` 同样含 `arch -x86_64` + `nightly-2023-08-15-x86_64-apple-darwin` 串
+- `.env` 中 `TS_PRUSTI_JAVA_HOME` 指向 x86_64 JDK（Prusti 仅提供 x86_64 二进制包；上游 Apple Silicon 原生分发缺位）
+- 用户可通过修改 `tool.toml` / wrapper 适配其他平台：
+  - Linux x86_64：去掉 `arch -x86_64`，改 toolchain 为 `nightly-2023-08-15-x86_64-unknown-linux-gnu`，`TS_PRUSTI_JAVA_HOME` 指向 Linux JDK
+  - macOS x86_64：去掉 `arch -x86_64`（本机 x86_64 直跑），其他不变
+
+未在 Linux / Windows / macOS arm64 原生 prusti 上测试。
+
 ## 关联 sub-tests
 
 `examples/prusti-limit/` 是本工具自声明的前端限制集——这些 entry 触发 Prusti

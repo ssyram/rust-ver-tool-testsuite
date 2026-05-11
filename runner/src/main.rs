@@ -182,13 +182,55 @@ fn main() -> Result<()> {
                 let entry_id = format!("{}/{}/{}", example.feature, example.dir, entry);
                 match exec::execute(tool, example, entry, &run_dir) {
                     Ok(r) => {
-                        let (tag, status_str) = match r.status {
-                            exec::Status::Success => ("SUCCESS", "SUCCESS"),
-                            exec::Status::Failed if r.timed_out => ("TIMEOUT", "FAILED"),
-                            exec::Status::Failed => ("FAILED ", "FAILED"),
+                        // For FAILED tasks (not timeouts — those are SIGKILL by
+                        // us and the stderr is whatever the child managed to
+                        // flush before being killed; never an external-fault
+                        // signal we should swallow), peek into the captured
+                        // stderr/stdout and apply the external-fault catalogue
+                        // (report::classify_external_fault). On a hit, re-emit
+                        // the task as UNKNOWN with the diagnostic tag in
+                        // `error`, preserving raw_stdout/raw_stderr for audit.
+                        //
+                        // Per principles.md §六 "Oracle 责任 / 不冤枉" + the
+                        // false-positive audit (docs/fixes/false-positive-audit-2026-05-11.md
+                        // §4.1-4.5): runnable harness mismatch, single-file
+                        // pipelines missing cargo deps, old-cargo edition
+                        // refusal, vendor lint strictness and env corruption
+                        // are runner / tool-pipeline-upstream faults, never
+                        // tool-frontend rejections of the entry's Rust.
+                        let mut status_str = match r.status {
+                            exec::Status::Success => "SUCCESS",
+                            exec::Status::Failed => "FAILED",
+                        };
+                        let mut external_fault: Option<&'static str> = None;
+                        if matches!(r.status, exec::Status::Failed) && !r.timed_out {
+                            // Read just the stderr; stdout passed for parity
+                            // even though no current rule consults it.
+                            let stderr_path = run_dir.join(&r.raw_stderr_rel);
+                            let stdout_path = run_dir.join(&r.raw_stdout_rel);
+                            let stderr_text =
+                                std::fs::read_to_string(&stderr_path).unwrap_or_default();
+                            let stdout_text =
+                                std::fs::read_to_string(&stdout_path).unwrap_or_default();
+                            if let Some(tag) = report::classify_external_fault(
+                                &stderr_text,
+                                &stdout_text,
+                                r.exit_code,
+                            ) {
+                                external_fault = Some(tag);
+                                status_str = "UNKNOWN";
+                            }
+                        }
+                        let tag = match (status_str, r.timed_out) {
+                            ("SUCCESS", _) => "SUCCESS",
+                            ("UNKNOWN", _) => "UNKNOWN",
+                            (_, true) => "TIMEOUT",
+                            _ => "FAILED ",
                         };
                         let exit_part = if r.timed_out {
                             ", timed out".to_string()
+                        } else if let Some(ef) = external_fault {
+                            format!(", external_fault={}", ef)
                         } else {
                             match r.exit_code {
                                 Some(c) if !matches!(r.status, exec::Status::Success) => {
@@ -211,7 +253,7 @@ fn main() -> Result<()> {
                             timed_out: r.timed_out,
                             raw_stdout: Some(r.raw_stdout_rel),
                             raw_stderr: Some(r.raw_stderr_rel),
-                            error: None,
+                            error: external_fault.map(|s| format!("external_fault: {}", s)),
                         }
                     }
                     Err(e) => {

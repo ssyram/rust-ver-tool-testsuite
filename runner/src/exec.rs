@@ -98,6 +98,19 @@ pub fn execute(
     let crate_ident = example.crate_name.replace('-', "_");
     ctx.insert("target_crate_name", &crate_ident);
     ctx.insert("entry_fn", entry);
+    // `entry_args` is the call-site argument list (a Rust expression list,
+    // empty for entries without a `[runnable.<entry>]` table — back-compat
+    // with the original zero-arg harness contract). See
+    // discover.rs::Example::entry_args + detailed-design.md §一 ("Schema 向后
+    // 兼容性") and false-positive-audit-2026-05-11.md §4.1 — without this,
+    // bin-mode harnesses on the 15 runnable entries fail with E0061 across
+    // ~9 tools (134 audited false positives).
+    let entry_args: &str = example
+        .entry_args
+        .get(entry)
+        .map(String::as_str)
+        .unwrap_or("");
+    ctx.insert("entry_args", entry_args);
     let rendered = tera
         .render("harness", &ctx)
         .context("rendering harness template")?;

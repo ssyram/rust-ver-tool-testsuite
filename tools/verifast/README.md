@@ -103,4 +103,6 @@ VeriFast 是 separation-logic 符号执行验证器，pipeline：rustc-verifast 
 
 本工具未派生限制集 agent，无 `examples/verifast-limit/`。
 
-plain Rust 样例在 `-skip_specless_fns` 下全部预期 SUCCESS（工具静默通过）。带正确 `//@ req/ens` 注解的样例进入 SMT 验证；带错误 spec 的样例预期 FAILED（exit 1）。
+**P12 修订前**：plain Rust 样例在 `-skip_specless_fns` 下全部预期 SUCCESS（工具静默通过）。
+
+**P12 修订后（2026-05-08，当前生效）**：plain Rust 样例在 `verifast-strict-wrapper.sh` 的双重检查（exit 0 + `-verbose 1` symex 触及 user file）下预期 FAILED——`-skip_specless_fns` 让所有用户函数被跳过，是 vacuous pass 而非"真验证用户代码"。详见 §SUCCESS 信号 + vacuous-pass 历史口径修订段。带正确 `//@ req/ens` 注解的样例进入 SMT 验证；带错误 spec 的样例预期 FAILED（exit 1）。

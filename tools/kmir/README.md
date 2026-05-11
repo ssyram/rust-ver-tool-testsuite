@@ -66,6 +66,20 @@ KMIR 的子命令分两类：
 - **per-program kompile 开销**：每次 `kmir run` 对 SMIR 做增量 kompile，约 10-30 秒，是工具链中最慢的环节。
 - **nightly-2024-11-29 专用**：stable-mir-json 必须用此版本构建，与项目主 stable toolchain 共存（rustup 可同时管理多个 toolchain）。
 
+## 已知限制 / 平台兼容
+
+**当前测试运行环境**：macOS aarch64（Apple Silicon），通过 brew 安装 openjdk + kframework。
+
+**平台特定配置**：
+
+- `.env` 中 `TS_KMIR_JAVA_BIN_DIR` 默认 `/opt/homebrew/opt/openjdk/bin`（macOS arm64 brew 路径前缀；Intel Mac 是 `/usr/local/opt/openjdk/bin`）
+- `tool.toml` 通过 `env PATH=${TS_KMIR_JAVA_BIN_DIR}:$PATH` 注入该路径，使 K Framework 在运行时找到 Java；kmir binary 由系统 PATH 解析（基线 `/opt/homebrew/bin/kmir`）
+- 用户可通过修改 `.env` 适配其他平台：
+  - Linux：`TS_KMIR_JAVA_BIN_DIR=/usr/lib/jvm/<distro-openjdk>/bin`（按发行版）
+  - macOS x86_64：`TS_KMIR_JAVA_BIN_DIR=/usr/local/opt/openjdk/bin`（Intel brew prefix）
+
+未在 Linux / Windows / macOS x86_64 上测试。
+
 ## 关联 sub-tests
 
 本工具未派生限制集 agent（集成路径复杂，未派限制集），无 `examples/kmir-limit/`。

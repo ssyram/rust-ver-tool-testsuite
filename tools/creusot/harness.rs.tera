@@ -8,5 +8,5 @@ pub use __ts_inner::*;
 
 #[allow(dead_code)]
 fn __ts_invoke() {
-    __ts_inner::{{ entry_fn }}();
+    let _ = __ts_inner::{{ entry_fn }}({{ entry_args }});
 }

@@ -1,6 +1,6 @@
 #[kani::proof]
 fn ts_proof() {
-    {{ target_crate_name }}::{{ entry_fn }}();
+    let _ = {{ target_crate_name }}::{{ entry_fn }}({{ entry_args }});
 }
 
 fn main() {}

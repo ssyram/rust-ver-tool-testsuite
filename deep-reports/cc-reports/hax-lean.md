@@ -2,11 +2,14 @@
 
 ## 元数据
 
-- **数据源**：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **数据源**：`runs/run-1778491781-11043/`（2026-05-11，161 entries × hax-lean 单工具；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+  - 前一快照：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵）→ 通过率 110/146 ≈ 75.3%
 - **工具版本**：`hax untagged-git-rev-30949eb870`（commit `30949eb87058895c24f963df90dd30ef11b0dc1a`）；nightly toolchain `nightly-2025-11-08`；OCaml `hax-engine` + Rust frontend driver `driver-hax-frontend-exporter`
 - **工具配置**：`tools/hax-lean/`（`tool.toml`、`harness.rs.tera`、`README.md`）
-- **通过率**：SUCCESS 110 / 146 ≈ **75.3%**（FAILED 36，TIMEOUT 0）
-- **耗时分布**：avg 3647 ms / median 1859 ms / p90 8957 ms / p95 15833 ms / max 26768 ms（无 entry 触达 600 s timeout）
+- **通过率**：SUCCESS 125 / 161 ≈ **77.6%**（FAILED 36，TIMEOUT 0）
+  - corpus 从 146 → 161（+15 runnable entry：runnable 模式翻译工具仍接受 Bin / Lib，全部 SUCCESS）
+  - v1 → vN 同 oracle 下数字差异完全由 corpus 扩张 (+15 SUCCESS) 解释；新 entry_fn gate 在当前 corpus 实测 0 命中（纯理论窗口封堵）
+- **耗时分布**：本次单工具快照未重算 percentile；旧 19 工具矩阵 avg 3647 ms / median 1859 ms / p90 8957 ms / p95 15833 ms / max 26768 ms（无 entry 触达 600 s timeout）
 - **时效声明**：本快照锚定上述 run id + hax commit + nightly 工具链 + corpus，不构成长期承诺。hax 上游对 Lean printer 持续开发中（README 标 active development），新版本对 mut-ref / dyn / sentinel-body 路径的处理变化会让本快照失效。
 
 ## 工具内部 pipeline + 前端边界
@@ -26,23 +29,31 @@ rustc + driver-hax-frontend-exporter
 
 ## SUCCESS 信号 + 形式严格性
 
-**判定式**（`tool.toml` oracle）：
+**判定式**（`tool.toml` oracle，2026-05-11 P17 D1 加 entry_fn gate）：
 
 ```
-SUCCESS ⟺ cargo hax exit 0 ∧ 产物（strip Lean `--` 行注释后）
-          grep 不命中 term-position sorry
+SUCCESS ⟺ cargo hax exit 0
+        ∧ 产物（strip Lean `--` 行注释后）grep 不命中 term-position sorry
+        ∧ entry_fn 在产物中存在 `def <fn>` / `opaque <fn>` 定义
 ```
 
 term-position sorry 的精准 grep：先 `awk '{ sub(/--.*/, ""); print }'` 剥行注释，再 `grep -E '(:=|pure|mk|,)\s*sorry\b|\bsorry\s*[,)\]]'` 抓 `:= sorry` / `pure sorry` / `mk sorry` / `, sorry` / `sorry,)` 等位置——不抓 binder 位置（用户合法 `let sorry : i32 := 5;` 不触发）。
 
-**双轨 partial 暴露机制**：
+entry_fn 存在性 grep：`^(def|opaque)[[:space:]]+$TS_ENTRY_FN([[:space:]]|\()` —— hax-lean 对 fn item 统一渲染为 `def <name> (` / `opaque <name> (`（`rust-engine/src/backends/lean.rs:1472`，`ItemKind::Fn` 单一入口），在 `namespace <crate>` 内顶格无缩进；mutual rec / `ResugaredItemKind::RecursiveFn` / `ResugaredItemKind::Constant` 同样走 `def <name>`（`lean.rs:1919/1944-1955`）。合法翻译的 entry_fn 必命中此 grep。
+
+**三轨 partial 暴露机制**：
 1. **官方信号**：cargo hax exit 1 = engine emit `FromEngine::Diagnostic`（带 `[HAX####]` 错误码 + GitHub issue 链接）
-2. **silent path**：`rust-engine/src/backends/lean.rs:1287, 2163` 的 `PatKind::Error` / `error_node` 路径直接 emit `text!("sorry")`，**不发 Diagnostic**——cargo hax 仍以 exit 0 收尾，但产物含 term-position sorry。这条路径是 hax-lean **特有的** silent partial（hax-fstar / hax-coq 的 backend 没有这条），oracle 必须额外抓住。
+2. **silent sentinel path**：`rust-engine/src/backends/lean.rs:1287, 2163` 的 `PatKind::Error` / `error_node` 路径直接 emit `text!("sorry")`，**不发 Diagnostic**——cargo hax 仍 exit 0 但产物含 term-position sorry → oracle grep 抓
+3. **silent skip-item path**（P17 D1 新封堵）：`rust-engine/src/backends/lean.rs:1521 ItemKind::RustModule | ItemKind::Use { .. } => nil!()` 把 `Use` 类型 item 渲染为空 document，**既不写定义也不发 Diagnostic**，cargo hax exit 0。fn item 本身走 `ItemKind::Fn` 必经 `def <name>`/`opaque <name>`（lean.rs:1472），但理论窗口：hax phases 可能把 fn 重写为 Use kind（与 hax-fstar `fstar_backend.ml:1771 Use _ | NotImplementedYet -> []` / hax-coq `coq_backend.ml:588 item'_NotImplementedYet` 同形态）→ 新 entry_fn 存在性 grep 抓
 
 **形式严格性**：
-- **0 误报**：⚠️ 实测验证，不可形式证明。grep 模式经实测：用户合法 `let sorry: i32 = 5;` 与 doc comment 含 `sorry` 字面字符串都不触发——但理论上无法形式排除未来上游改动引入新合法语法
-- **0 漏报**：⚠️ 实测验证，不可形式证明。grep 抓 hax-lean 已知 silent path；上游可能引入新 silent path 而 grep 滞后
-- **漏报盲点**：hax engine 完全 skip item（item 既不写 sorry 也不发 Diagnostic、不出现在产物里）—— oracle 抓不到，需对应性脚本暴露（实测在当前 corpus 0 现象）
+- **0 误报**：⚠️ 实测验证，不可形式证明。
+  - sorry grep：用户合法 `let sorry: i32 = 5;` 与 doc comment 含 `sorry` 字面字符串都不触发——但理论上无法形式排除未来上游改动引入新合法语法
+  - entry_fn grep：实测 6 个真 SUCCESS entry（`hello/basic-hello/hello` / `enum/data-variants/enum_match_data` / `arc/clone-drop/arc_clone_drop` / `bigint/bigint-arith/bigint_arith` / `bigint/bigint-bitwise/bigint_bitwise` / `creusot-limit/mutual-recursion/trigger_is_even`）全部命中 → 无 false-positive
+- **0 漏报**：✅ 与 hax-fstar / hax-coq 对等。silent sentinel path（sorry）与 silent skip-item path（Use/nil）两条已知路径均封堵（详见 `docs/fixes/hax-lean-silent-skip-fix-2026-05-11.md`）。上游可能引入第三条新 silent path 而 grep 滞后——理论残余风险。
+- **漏报盲点**：
+  - hax engine 在未来版本引入新的 silent-skip path 而本测试 grep 滞后
+  - lean.rs:1521 实测在当前 corpus 0 命中（与 hax-fstar / hax-coq 同等理论窗口）
 
 ## 实测结果
 
@@ -62,16 +73,16 @@ iter / panic / prusti-limit(7/8) / rc / slice / vec
 
 ### 失败模式归类（基于 raw stderr）
 
-36 个 FAILED 按 raw stderr 字面信号归类：
+vN（P17 D1 + corpus 161） 36 个 FAILED 按 raw stderr 字面信号归类：
 
 | 类别 | 数量 | 触发信号 |
 |---|---:|---|
 | **A. silent sorry path（oracle 触发）** | 20 | cargo hax exit 0 但产物含 term-position sorry，oracle 把 rc 改写为 1 并附 `[hax-lean-oracle] FAIL: silent partial — sorry in term position (lean.rs:1287/2163 PatKind::Error / error_node path)` |
-| **B. `[HAX0001]` Lean Printer 阶段 todo** | 9 | `Unsupported `dyn` traits`（issue #1708）/ `Unsupported equality constraints on associated types of parent trait`（issue #1923）/ 其他 Lean Printer 内部 todo |
+| **A'. silent skip-item path（新 gate 触发）** | **0** | P17 D1 加 `lean.rs:1521 Use/RustModule` 路径封堵——entry_fn 不在产物时触发 `[hax-lean-oracle] FAIL: entry_fn 'X' missing from .lean products`。当前 corpus 0 现象（纯理论窗口） |
+| **B. `[HAX0001]` Lean Printer 阶段 todo** | 9-13 | `Unsupported `dyn` traits`（issue #1708）/ `Unsupported equality constraints on associated types of parent trait`（issue #1923）/ 其他 Lean Printer 内部 todo |
 | **C. `[HAX0002]` Name rendering（InlineConst / Union）** | 3 | `repr/union/repr_union`（DefIdInner kind: Union）、`creusot-limit/thread-local-ref` 与 `lifetime/thread-local`（thread_local! 宏展开的 InlineConst） |
 | **D. industrial 工业代码 lint→error** | 2 | `industrial/x509-parser/cert-parse/{x509_parse_der, x509_subject_extensions}`：vendor crate 的 `unnecessary qualification` lint 在 nightly 下被升级为 error，`error: could not compile x509-parser (lib) due to 7 previous errors`，hax-engine 没机会跑 |
 | **E. 底层 rustc / hax frontend 栈溢出** | 1 | `trait/cyclic-bound/cyclic_bound_use`：`thread 'rustc' has overflowed its stack / fatal runtime error: stack overflow / signal: 6, SIGABRT`，发生在 `driver-hax-frontend-exporter` 阶段 |
-| **F. industrial 其他失败** | 1 | x509-parser 第二条已计入 D；归桶后实际 D=2，F=0 |
 
 **A 桶（silent sorry）的 20 条**清单（按 entry_id 字典序）：
 

@@ -1,5 +1,7 @@
 # Oracle 漏报审计 2026-05-08
 
+> **派生链**：前序 [`extra-cargo-deps-and-entry-mode.md`](extra-cargo-deps-and-entry-mode.md) → **本文** → 后续 [`oracle-leak-rules-implementation-2026-05-08.md`](oracle-leak-rules-implementation-2026-05-08.md)（P12 实施） + [`oracle-leak-audit-2-2026-05-11.md`](oracle-leak-audit-2-2026-05-11.md)（P13 扩展审计）
+
 > 审计 19 个工具的 oracle 漏报情况，识别"工具因短路机制让我们 entry 绕过真处理逻辑、但 oracle 判 SUCCESS"的虚高 SUCCESS。
 >
 > 数据基于 `runs/run-1778226613-5282/results.json`（146 entries × 19 tools，UTC 2026-05-08T07:50:13Z – 08:16:08Z）。

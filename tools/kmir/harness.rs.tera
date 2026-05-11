@@ -10,5 +10,5 @@
 // enters at `main` by default (--start-symbol overrides this).
 
 fn main() {
-    {{ target_crate_name }}::{{ entry_fn }}();
+    let _ = {{ target_crate_name }}::{{ entry_fn }}({{ entry_args }});
 }

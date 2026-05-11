@@ -20,5 +20,5 @@ mod __ts_inner;
 pub use __ts_inner::*;
 
 fn main() {
-    let _ = __ts_inner::{{ entry_fn }}();
+    let _ = __ts_inner::{{ entry_fn }}({{ entry_args }});
 }

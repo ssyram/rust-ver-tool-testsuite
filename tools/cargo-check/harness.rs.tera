@@ -1,3 +1,10 @@
+// Template variables (see runner/src/exec.rs Tera context):
+//   {{ target_crate_name }} — Rust ident form of cargo [package].name
+//   {{ entry_fn }}          — entry function name from hirusttest.toml
+//   {{ entry_args }}        — rendered call-site args; empty for non-runnable
+//                              entries (zero-arg harness, back-compat), or
+//                              `<literal>, <literal>, …` from inputs[0] when
+//                              the entry has a [runnable.<entry>] table.
 fn main() {
-    {{ target_crate_name }}::{{ entry_fn }}();
+    let _ = {{ target_crate_name }}::{{ entry_fn }}({{ entry_args }});
 }

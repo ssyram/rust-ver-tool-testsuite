@@ -19,7 +19,7 @@ Hax 是**纯翻译工具**，pipeline 终点是 `.v` 文件落盘——下游 `c
 
 Coq backend 是 hax 中 reject phase 最多的（9 个：`Reject.Unsafe`、`RawOrMutPointer`、`Arbitrary_lhs`、`Continue ×2`、`EarlyExit`、`As_pattern`、`Dyn`、`Trait_item_default`），所以矩阵通过率 ~67%（低于 lean 89% / fstar 79%）。
 
-> **Coq printer 的 silent fallback 路径**：上游源码 `engine/backends/coq/coq/coq_backend.ml:137` 的 `default_document_for s = "TODO: please implement the method `..."` 是纯文本输出，**不发 Diagnostic**——cargo hax 仍 exit 0 但 .v 文件里散布 `"TODO: please implement..."` 字面字符串。当前 oracle 不抓这种情况。
+> **Coq printer 的 silent fallback 路径**：上游源码 `engine/backends/coq/coq/coq_backend.ml:137` 的 `default_document_for s = "TODO: please implement the method `..."` 是纯文本输出，**不发 Diagnostic**——cargo hax 仍 exit 0 但 .v 文件里散布 `"TODO: please implement..."` 字面字符串。当前 oracle 通过下文 SUCCESS 信号段 silent path A 的产物 grep `please implement the method` 抓这种情况。
 
 ### SUCCESS 信号（严格反映前端特性支持范围）
 

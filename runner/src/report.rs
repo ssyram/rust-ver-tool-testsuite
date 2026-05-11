@@ -58,6 +58,68 @@ pub struct TaskResult {
 
 fn is_false(b: &bool) -> bool { !*b }
 
+/// Classify FAILED stderr/stdout against a fixed catalogue of *external* root
+/// causes — situations where the tool's own front-end never had a chance to
+/// reject the entry's Rust features, so reporting FAILED would violate the
+/// "0 误报" principle (principles.md §六 + false-positive-audit-2026-05-11.md
+/// §5). When a pattern hits, the task is re-classified as `UNKNOWN` and the
+/// returned tag is preserved in `TaskResult::error` for diagnosability.
+///
+/// Patterns are intentionally specific to avoid swallowing real tool partial
+/// signals (e.g., we require both `error[E0061]` *and* the "argument(s)"
+/// follow-up so an unrelated arity error in user source can't be misread).
+/// `None` means "no external fault recognized — keep the original FAILED".
+pub fn classify_external_fault(stderr: &str, stdout: &str, _exit: Option<i32>) -> Option<&'static str> {
+    // Some tools (notably kani) route their captured cargo build diagnostics
+    // through stdout rather than stderr; check both streams so the rules are
+    // resilient to tool-wrapper choices. We never inspect content the runner
+    // produced itself — only the child process's captured output.
+    let contains_either = |needle: &str| stderr.contains(needle) || stdout.contains(needle);
+
+    // 1. runnable-corpus harness/argument mismatch fallback.
+    //    Task Y already fixes the dominant case at render time, but if a
+    //    template ever drifts back to zero-arg or a future runnable corpus
+    //    ships without a `[runnable.<entry>]` table, we still want to mark
+    //    that as runner-fault UNKNOWN rather than blame the tool.
+    if contains_either("error[E0061]") && contains_either("argument") {
+        return Some("runnable_harness_arg_mismatch");
+    }
+    // 2. tool pipeline doesn't run `cargo build` (single-file pipelines like
+    //    verus / verifast / soteria / rocq-of-rust) → external crates from
+    //    `extra_cargo_deps` show up as unresolved imports. The entry itself
+    //    is legal Rust (cargo-check passes); the tool just never saw the
+    //    deps. Audit §4.2 — 101 FPs.
+    if contains_either("error[E0432]: unresolved import") {
+        return Some("dependency_resolution");
+    }
+    // 3. tool ships an old cargo (e.g. prusti 0.1.0 → cargo from 2023-08)
+    //    that doesn't know about Rust 2024 edition. Audit §4.3 — 7 FPs.
+    if contains_either("this version of Cargo is older than the")
+        && contains_either("edition")
+    {
+        return Some("toolchain_edition_mismatch");
+    }
+    // 4. vendor crate lint level + tool-specific toolchain combination. The
+    //    `vendor/x509-parser` crate declares `#![deny(unused_qualifications)]`
+    //    and newer rustc fires the lint more aggressively. Audit §4.4 — 10
+    //    FPs (kani + hax-*). Match on the lint name *and* a vendored path so
+    //    we don't catch a user entry that legitimately writes
+    //    `unused_qualifications` somewhere.
+    if contains_either("unused_qualifications") && contains_either("vendor/") {
+        return Some("vendor_lint_strictness");
+    }
+    // 5. environment corruption — historical example: prusti viper_tools jars
+    //    cleaned out of /tmp, leading to JNI `JavaException` on the unwrap of
+    //    Result. Generic enough to cover other JVM-class crashes that bubble
+    //    up the same way without misclassifying a real prusti partial
+    //    (prusti's own partial signals are tagged `[Prusti: unsupported …]`
+    //    or `[Prusti: internal error]`, never `JavaException`).
+    if contains_either("Result::unwrap()") && contains_either("JavaException") {
+        return Some("environment_corruption");
+    }
+    None
+}
+
 /// Owned shape used both when serialising results.json and when reading it
 /// back via the `runner report <run-dir>` subcommand.
 #[derive(Serialize, Deserialize)]

@@ -1,5 +1,7 @@
 # hax-lean-eval Corpus Baseline (P16-impl-A 产出)
 
+> **派生链**：**本文** → 后续 `tools/hax-lean-eval/` 实施 P16-impl-B（待）
+
 > **产出阶段**：P16-impl-A（corpus 扩展 + schema 落地，本阶段交付物）
 > **后续阶段**：P16-impl-B（实施 `tools/hax-lean-eval/` 工具入口）将以本文档为反误报双向实测的"已知 SUCCESS 一致性"基准
 > **设计稿溯源**：[`../design/hax-lean-consistency-design-2026-05-11.md`](../design/hax-lean-consistency-design-2026-05-11.md)

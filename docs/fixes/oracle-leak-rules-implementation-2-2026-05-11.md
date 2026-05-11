@@ -1,5 +1,7 @@
 # Oracle 漏报封堵规则实施 + 反误报论证（第二轮，2026-05-11）
 
+> **派生链**：前序 [`oracle-leak-audit-2-2026-05-11.md`](oracle-leak-audit-2-2026-05-11.md)（P13 audit-2）→ **本文** → 后续 [`rocq-of-rust-typecheck-implementation-2026-05-11.md`](rocq-of-rust-typecheck-implementation-2026-05-11.md)（P15 ror 档 1 实施） + [`ror-gate6-fix-2026-05-11.md`](ror-gate6-fix-2026-05-11.md)（P15 反向暴露修复）
+
 > 落地 [`docs/fixes/oracle-leak-audit-2-2026-05-11.md`](./oracle-leak-audit-2-2026-05-11.md) §4 的 priority 1-3 推荐封堵规则。本文是正式实施记录 + 反误报论证。
 >
 > 按 [`docs/design/tool-integration.md`](../design/tool-integration.md) §4.2 双向实测要求：每条新规则必须同时验证（i）已知 silent path → 命中（防漏报）；（ii）合法 SUCCESS → 不命中（反误报）。

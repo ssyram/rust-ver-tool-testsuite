@@ -58,7 +58,7 @@ Gate 6 闭合的 silent path（v3 + v4 共同覆盖）：
 - **0 漏报**：⚠️ 升级二度（5 道门 → 6 道门 → v4 N-attempt wrapper）。Gate 6 把 audit §3.2 标记的 "silent skip-item 类"封堵；v4 N-attempt 把非确定性翻译路径也纳入捕获。
 - **漏报盲点**：
   - 上游引入新 silent fallback 路径不带已知 markers 且 entry_fn 仍被生成（理论窗口；本 corpus 0 现象）
-  - rocq-of-rust 引入新的非确定性翻译路径，3 次 attempt 都恰好采到含 entry_fn 的变体——可通过把 N 增大缓解（`ROCQ_OF_RUST_N_ATTEMPTS` env 已暴露）
+  - rocq-of-rust 引入新的非确定性翻译路径，N=7 次 attempt 都恰好采到含 entry_fn 的变体——可通过把 N 增大缓解（`ROCQ_OF_RUST_N_ATTEMPTS` env 已暴露）
   - 合理 skip 类（`use` / `extern crate` / `macro_rules!` 在 `top_level.rs:349-390` 直接 `vec![]`）—— 这些不是 fn item，gate 6 不针对（`TS_ENTRY_FN` 永远是 fn 名），属合理 skip，**不算漏报**
 
 ## 实测结果
@@ -126,7 +126,7 @@ rocq-of-rust 内部用 nightly-2024-12-07 toolchain 调 rustc 但**未透传 car
 - 1/37 FAILED（`repr/union`）落在第 5 道门 grep（C 类）——是真正的翻译能力边界触发（`(* Error Variant *)`）
 - **12/37 FAILED 落在第 6 道门 entry_fn grep（D 类）**——silent skip-item，rocq-of-rust 把 fn item silently `vec![]` 但 exit 0 + 5 道门全通过；其中 10 个是 v3 的确定性 silent skip（top_level 分发问题），2 个是 v4 新抓的非确定性 silent skip（thread_local! 类）
 
-124 个 SUCCESS 上 N-attempt（3 次）AND-reduce 后 marker grep 没命中任何 `Unexpected / Please report! / thir failed to compile / Unimplemented / Error` marker，且 entry_fn 都正确生成 `Definition` 三次——说明 rocq-of-rust 在它能接受 input + top-level 分发到位 + 翻译路径稳定的 entry 上**给出了包含 entry_fn 的完整、稳定翻译**。
+124 个 SUCCESS 上 N-attempt（N=7）AND-reduce 后 marker grep 没命中任何 `Unexpected / Please report! / thir failed to compile / Unimplemented / Error` marker，且 entry_fn 都正确生成 `Definition` 七次——说明 rocq-of-rust 在它能接受 input + top-level 分发到位 + 翻译路径稳定的 entry 上**给出了包含 entry_fn 的完整、稳定翻译**。
 
 **合理 skip 不算漏报**：rocq-of-rust 在 `top_level.rs:349-390` 对 `use` / `extern crate` / `macro_rules!` 直接返回 `vec![]`——这些不是 fn item，gate 6 不针对（`TS_ENTRY_FN` 永远是 fn 名）。如果 oracle 把这种 skip 当 silent partial，会大量误报合法代码。当前 5-marker 集 + entry_fn-level grep 只抓 rocq-of-rust 自己 emit 的 explicit failure comment 块或 silent skip 掉 fn item 这两类，避免误伤合理 skip 路径。
 
@@ -134,14 +134,44 @@ rocq-of-rust 内部用 nightly-2024-12-07 toolchain 调 rustc 但**未透传 car
 
 每个 Definition 显式标记 `Admitted.`——这是 rocq-of-rust 设计上明确把"证明义务"留给 Rocq 端的人手写规约。本测试把它视为 rocq-of-rust 的"翻译完成"成功状态。
 
+## 翻译产物可运行性
+
+本工具档 0 测 "翻译落盘 + 无 silent fallback + entry_fn 存在"——严格说测的是"产物在 Coq 里是有效的 Coq 项"，**结构正确，语义不验证**。档 1（typecheck）由配套 `tools/rocq-of-rust-typecheck` 覆盖；档 2/3（evaluate / 与 Rust 一致）**架构上不可达**。详见 [`../../docs/research/ror-runnable-deep-dive-2026-05-11.md`](../../docs/research/ror-runnable-deep-dive-2026-05-11.md)。
+
+**深嵌入 vs 浅嵌入**：
+
+- **ror 产物 = deep embedding**：`Definition fn (a b : Value.t) : M.t LowM.t (Value.t + Exception.t) := let* ... call_closure BinOp.Wrap.add ...`。`Value.t` 是 inductive 包装类型，`M` 是 effect monad；所有 op（`alloc` / `read` / `call_closure` / `call_primitive`）是 inductive constructor，**无 Compute 语义**。`vm_compute` / `native_compute` 在 axiom-laden `Run.t` proof tree 上 SIGSEGV。
+- **hax-lean 产物 = shallow embedding**（对照）：`def fn (a b : Int32) : RustM Int32 := RustM.ok (a + b)`，Lean `#eval fn 3 4` 一行出 `RustM.ok 7`。
+
+**ror 上游"官方运行模式"**：
+
+- API：`SimulateM.eval` / `SimulateM.eval_f`（`simulate/M.v:343 / 445`）
+- 性质：**propositional 解释器**，不是 native compute
+- 输入：`LinkM.t R Output` + 需要 `Run.Trait` 实例（用户用 `run_symbolic` tactic 推导）
+- 输出：`SimulateM.t` inductive，**不是** native `Z`
+- 与"值"关系：propositional（`🌲` = `Run.t`），用 `repeat (eapply Run.Call || apply Run.Pure)` 证明
+- 性能：per-entry **5–50+ 行手工 Coq tactic**；递归 fn 需手工 well-founded induction
+
+**档可达性总结表**：
+
+| 档 | ror | hax-lean |
+| --- | --- | --- |
+| 档 0 前端接受 | ✅ 本工具（`tools/rocq-of-rust`）| ✅ `tools/hax-lean` |
+| 档 1 typecheck | ✅ `tools/rocq-of-rust-typecheck` | ✅ feasibility 实测 |
+| 档 2 auto evaluate | ❌ **架构上不可达** | ✅ `#eval` 实测 |
+| 档 2 半人工 lemma | ⚠️ per-entry 5–50 行手工证明 | — |
+| 档 3 与 Rust 一致 | ❌ 除非档 2 解决 | ✅ byte-identical 实测 |
+
+**项目决策**：投入档 1 自动化（已上线 `tools/rocq-of-rust-typecheck`），不投入档 2/3 自动化（per-entry 手工证 vs corpus ~150 entries 规模严重不匹配）。这是 ror **设计选择**（deep embedding 为形式证明优化），不是 bug；上游头部带 `Admitted.` 已经声明了"翻译完成 ≠ 可运行"的立场。
+
 ## 历史快照声明
 
-本报告 v4 数字与归类锚定 commit `a8a76a4d` + nightly-2024-12-07 toolchain + **6 道门 + N-attempt wrapper oracle**（N=7，marker 集 = `Error / Unexpected / Please report! / thir failed to compile / Unimplemented` + entry_fn `Definition` 存在性检查 + 3 次产物 AND-reduce）。rocq-of-rust 升级（含新 silent fallback 路径、marker 文本变更、edition 默认透传、top-level 分发改动、翻译路径非确定性变化）后归类可能改写。
+本报告 v4 数字与归类锚定 commit `a8a76a4d` + nightly-2024-12-07 toolchain + **6 道门 + N-attempt wrapper oracle**（N=7，marker 集 = `Error / Unexpected / Please report! / thir failed to compile / Unimplemented` + entry_fn `Definition` 存在性检查 + N=7 次产物 AND-reduce）。rocq-of-rust 升级（含新 silent fallback 路径、marker 文本变更、edition 默认透传、top-level 分发改动、翻译路径非确定性变化）后归类可能改写。
 
 ## 关键发现摘要
 
-1. **v3 → v4 关键修复（2026-05-11，本 update）**：P15-impl 实施 ror 档 1 typecheck 自动化时，反向暴露档 0 在 `creusot-limit/thread-local-ref` / `lifetime/thread-local` 上的 gate 6 漏报。根因不是 grep 模式错——而是 rocq-of-rust 翻译 `thread_local!` 宏触发的 entry 时输出**非确定性**（≈80% 含 fn / ≈20% drop fn），单次 oracle 采样 SUCCESS / FAILED 随机切换。修复采用 wrapper-based N-attempt（N=7）AND-reduce，把 P(漏 fn)^3 推到几乎 0。详 [`docs/fixes/ror-gate6-fix-2026-05-11.md`](../../docs/fixes/ror-gate6-fix-2026-05-11.md)。
+1. **v3 → v4 关键修复（2026-05-11，本 update）**：P15-impl 实施 ror 档 1 typecheck 自动化时，反向暴露档 0 在 `creusot-limit/thread-local-ref` / `lifetime/thread-local` 上的 gate 6 漏报。根因不是 grep 模式错——而是 rocq-of-rust 翻译 `thread_local!` 宏触发的 entry 时输出**非确定性**（≈80% 含 fn / ≈20% drop fn），单次 oracle 采样 SUCCESS / FAILED 随机切换。修复采用 wrapper-based N-attempt（N=7）AND-reduce，把 P(漏 fn)^7 推到几乎 0。详 [`docs/fixes/ror-gate6-fix-2026-05-11.md`](../../docs/fixes/ror-gate6-fix-2026-05-11.md)。
 2. **v3 关键修复（2026-05-08，P12-A）**：新增 gate 6 entry_fn `Definition <fn>` 存在性 grep，抓 10 个 silent skip-item（确定性 top_level 分发问题），把通过率从 121/146 (82.9%) 降到 111/146 (76.0%)。
 3. **v4 通过率（仅看共享 146 entry 子集）**：109/146 = 74.7%（v3 76.0%，−1.3pp）；全 161 entry 124/161 = 77.0%。
 4. **审计启发实施暴露漏报第三案例**（前两：P12 verifast N≤40 / P13 hax-fstar 漏 mutual-rec）。本案再次验证"在实施新工具 / 新版本时反向比对老工具，是发现隐藏漏报的稳健启发"。
-5. **0 误报论证不退化**：N-attempt wrapper 对确定性翻译路径（占 corpus 大头）的产物 byte-identical，3 次 AND-reduce 与 1 次结果相同，不引入误报。
+5. **0 误报论证不退化**：N-attempt wrapper 对确定性翻译路径（占 corpus 大头）的产物 byte-identical，N=7 次 AND-reduce 与 1 次结果相同，不引入误报。

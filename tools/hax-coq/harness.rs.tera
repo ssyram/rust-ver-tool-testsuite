@@ -2,5 +2,5 @@
 // This file is compiled to ensure the entry fn is reachable, but is not
 // fed to hax's extraction pipeline.
 fn main() {
-    let _ = {{ target_crate_name }}::{{ entry_fn }}();
+    let _ = {{ target_crate_name }}::{{ entry_fn }}({{ entry_args }});
 }
