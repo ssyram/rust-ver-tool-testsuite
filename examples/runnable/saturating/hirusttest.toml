@@ -1,0 +1,5 @@
+entries = ["sat_add_u8"]
+
+[runnable.sat_add_u8]
+inputs   = [[0, 0], [100, 50], [200, 100], [255, 1], [250, 250]]
+expected = [0, 150, 255, 255, 255]

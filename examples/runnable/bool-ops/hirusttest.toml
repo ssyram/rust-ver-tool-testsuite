@@ -1,0 +1,5 @@
+entries = ["and_or_not"]
+
+[runnable.and_or_not]
+inputs   = [[true, true, true], [true, false, true], [false, false, false], [false, true, true]]
+expected = [true, false, true, false]

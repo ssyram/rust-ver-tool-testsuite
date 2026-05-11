@@ -1,0 +1,5 @@
+entries = ["add_two"]
+
+[runnable.add_two]
+inputs   = [[3, 4], [10, -7], [0, 0]]
+expected = [7, 3, 0]

@@ -1,0 +1,5 @@
+entries = ["classify_sign"]
+
+[runnable.classify_sign]
+inputs   = [[0], [7], [-3], [100], [-1]]
+expected = [0, 1, -1, 1, -1]

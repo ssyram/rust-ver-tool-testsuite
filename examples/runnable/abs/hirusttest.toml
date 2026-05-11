@@ -1,0 +1,5 @@
+entries = ["my_abs"]
+
+[runnable.my_abs]
+inputs   = [[0], [7], [-7], [42], [-100]]
+expected = [0, 7, 7, 42, 100]

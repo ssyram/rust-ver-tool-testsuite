@@ -27,6 +27,58 @@ target_path = "subdir"                  # 可选，默认 "."；多 crate 样例
 - 零参，返回类型任意
 - 函数体是 plain Rust，**禁止** `#[<tool>::...]` / `#[cfg(<tool>)]` / `extern crate <tool>;` / 工具相关 dep
 
+##### `[runnable.<entry_fn>]` 扩展段（专为档 3 一致性测试预留，可选）
+
+为支持翻译类工具的"运行一致性"测试（按 [`hax-lean-consistency-design-2026-05-11.md`](hax-lean-consistency-design-2026-05-11.md) §2 schema 设计），单文件轨 `hirusttest.toml` 可追加一组 `[runnable.<entry_fn>]` 表。**该段为可选**——缺省时 entry 仅参与档 0 / 档 1 等不需要值比对的测试。
+
+```toml
+entries = ["add_two", "fact"]
+
+[runnable.add_two]
+inputs   = [[3, 4], [10, -7], [0, 0]]   # 必填，每组实参顺序与 fn 形参一致
+expected = [7, 3, 0]                      # 必填，与 inputs 同长度
+
+[runnable.fact]
+inputs   = [[5], [6]]
+expected = [120, 720]
+```
+
+**ID 与真 fn 名**：v1 直接令 ID = 真带参 fn 名（即 `entries = ["add_two"]` 中的 `add_two` 就是 `pub fn add_two(a: i32, b: i32) -> i32` 的 fn 名）。这意味着所有 `entry_mode = "bin"` 且 harness 默认调 zero-arg 形态的工具（cargo-check / kani / miri / ...）在 runnable entry 上的 harness 编译会失败 = FAILED——这是已知代价，对应 [hax-lean-consistency-design](hax-lean-consistency-design-2026-05-11.md) §3.6 的对称表现（non-runnable 在 hax-lean-eval 上 FAILED 是有意为之的诚实表态；runnable 在 zero-arg 工具上 FAILED 同理）。
+
+字段语义（v1 仅以下 2 个必填字段被读取；其余预留字段 serde 默认忽略，将由后续版本逐步实施）：
+
+| 字段 | 类型 | 必填 | v1 是否读 | 含义 |
+|---|---|---|---|---|
+| `inputs` | Array of Arrays | 是 | 是 | 每内 Array 是一组实参；`inputs.len() = 测试组数` |
+| `expected` | Array | 是 | 是 | 与 inputs 同长；每元素是该组对应的预期返回值 |
+| `input_types` | Array of String | 否 | 否 | 参数类型注解（如 `["i32", "i32"]`）。v1 由 fn 签名推断 |
+| `return_type` | String | 否 | 否 | 返回 Rust 类型；默认 `"i32"`；用于 Lean unwrap 策略选择 |
+| `rust_main_override` | String | 否 | 否 | 自定义 Rust 侧 main 模板 |
+| `lean_eval_override` | String | 否 | 否 | 自定义 Lean 侧 `#eval` 表达式模板 |
+| `compare_mode` | String | 否 | 否 | `"exact"`（默认）/ `"epsilon"`（v1 不支持） |
+| `compare_epsilon` | Number | 否 | 否 | epsilon 模式容差 |
+
+**类型支持矩阵**（v1）：
+
+- ✅ 参数 / 返回类型 ∈ { `i8 / i16 / i32 / i64 / i128 / u8 / u16 / u32 / u64 / u128 / bool` }
+- ⛔ `tuple / array / struct / enum` 作为参数 / 返回类型 v1 不支持（normalize 复杂度高，留 v2）
+- ⛔ 浮点（`f32 / f64`）v1 不支持（Rust `Debug` 与 Lean `#eval` 输出格式不一致，需 epsilon 模式才能比对）
+
+**纯内部化判定准则**（runnable entry 函数体必须满足）：
+
+- ✅ 基础算术 `+ - * /`、比较 `== != < <= > >=`、布尔操作 `&& || !`
+- ✅ `if-else` 控制流、`match` 表达式、自递归 / 互递归
+- ✅ 自定义 `struct` / `enum` + `impl` 方法（参数 / 返回仍限 v1 类型矩阵）
+- ⛔ `i*::checked_* / overflowing_*`（hax-lean prelude 未实现 → 翻译产物含 sorry）
+- ⛔ `Vec / VecDeque / HashMap / HashSet / String / Box / Rc / Arc`
+- ⛔ `panic! / unwrap() / expect() / assert!`（panic 让 Rust 侧 exit ≠ 0，无法字面比对）
+- ⛔ `println! / std::io::*`（IO 不可比）
+- ⛔ `thread::spawn / async / unsafe / raw pointer`
+
+**ID 语义不变**：`[runnable.<entry>]` 段不创建新 entry——它扩展已存在 entry（必须先出现在 `entries = [...]` 列表）。该 entry 的 ID 仍为 `<feature>/<dir>/<entry>`。这条由消费 runnable 的工具（如未来的 `tools/hax-lean-eval/`）在 wrapper 内自筛——runner 不感知 runnable 标记。
+
+**Schema 向后兼容性**：`runner/src/discover.rs` 的 `HirusttestToml` 结构未设 `deny_unknown_fields`，多出的 `[runnable.*]` 表会被 serde 忽略，不破现有 142 个 hirusttest.toml。
+
 #### 目录轨（仅外部综合项目，如 vendor/x509-parser、vendor/openssl）
 
 `<example_dir>/.hirusttest/config.toml`：

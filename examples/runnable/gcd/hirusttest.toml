@@ -1,0 +1,5 @@
+entries = ["gcd"]
+
+[runnable.gcd]
+inputs   = [[12, 18], [100, 75], [17, 5], [0, 7]]
+expected = [6, 25, 1, 7]

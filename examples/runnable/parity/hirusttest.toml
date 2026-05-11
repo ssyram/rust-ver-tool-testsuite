@@ -1,0 +1,5 @@
+entries = ["is_even"]
+
+[runnable.is_even]
+inputs   = [[0], [1], [2], [-3], [-4], [100]]
+expected = [true, false, true, false, true, true]

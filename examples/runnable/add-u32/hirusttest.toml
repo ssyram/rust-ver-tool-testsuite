@@ -1,0 +1,5 @@
+entries = ["add_u32"]
+
+[runnable.add_u32]
+inputs   = [[0, 0], [1, 2], [100, 200], [1000, 23456]]
+expected = [0, 3, 300, 24456]

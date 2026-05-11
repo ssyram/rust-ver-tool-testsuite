@@ -1,0 +1,5 @@
+entries = ["pow_n"]
+
+[runnable.pow_n]
+inputs   = [[2, 0], [2, 8], [3, 4], [-2, 3], [5, 1]]
+expected = [1, 256, 81, -8, 5]

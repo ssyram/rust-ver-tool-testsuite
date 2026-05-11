@@ -4,43 +4,59 @@
 #
 # rocq-of-rust ingests a single .rs file via rustc_interface; it doesn't read
 # Cargo.toml. We feed it `src/lib.rs` directly. The runner already sets cwd to
-# the work-copy crate root, so a relative path is enough.
+# the work-copy crate root.
 #
 # Runtime needs: DYLD_LIBRARY_PATH on the nightly sysroot lib (so
 # librustc_driver-*.dylib resolves) and PATH putting the nightly rustc first
 # (so rocq-of-rust's internal `rustc --print=sysroot` returns the right one).
 #
+# Invocation strategy (2026-05-11, post P15-bug fix):
+#   We invoke rocq-of-rust through tools/rocq-of-rust/rocq-of-rust-wrapper.sh,
+#   not via inline `sh -c`. The wrapper runs `rocq-of-rust translate` N=7
+#   times into separate output dirs and AND-reduces gates 2-6 across all
+#   attempts. This closes the non-determinism leak documented in
+#   docs/fixes/ror-gate6-fix-2026-05-11.md: on
+#   examples/creusot-limit/thread-local-ref/ the same lib.rs produces a
+#   variant that drops the entry fn ≈60% of the time (measured P(drop)=0.4
+#   in 30-run hand-test; flake-prone), which would otherwise randomly flip
+#   SUCCESS / FAILED between runs. N=7 gives 99.84% catch rate.
+#
 # Silent-error detection: rocq-of-rust exits 0 even when some constructs are
 # not supported; it embeds explicit failure comment blocks in the .v output.
 # To avoid false positives, oracle checks only product shape + these
-# tool-emitted comment markers, and does not fail on generic stderr warnings.
+# tool-emitted comment markers + entry_fn presence — see wrapper for full
+# implementation.
 #
 # entry_mode omitted (default "bin"). The harness is rendered to
 # src/bin/__ts_harness.rs but is irrelevant — rocq-of-rust only reads
 # src/lib.rs, never the harness file.
 #
-# Oracle (6 gates):
+# Oracle (6 gates — wrapper applies each on every of N attempts):
 #   1. exit code = 0
 #   2. ≥ 1 .v product exists
 #   3. no zero-byte .v product
 #   4. ≥ 1 .v product > 200 bytes
 #   5. no failure marker in any .v: (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )
-#   6. NEW: entry_fn name (TS_ENTRY_FN, injected by runner — see
+#   6. entry_fn name (TS_ENTRY_FN, injected by runner — see
 #      runner/src/exec.rs:178) appears as a `Definition <fn>` in some .v
-#      product. Closes the §B "完全 skip item" 漏报 gap documented in
-#      docs/fixes/oracle-leak-audit-2026-05-08.md §3.2 — e.g. ForeignMod
-#      (`extern "C" { fn ... }`) or other top-level kinds that
-#      top_level.rs:349-390 may handle by silently producing vec![].
-#      See docs/fixes/oracle-leak-rules-implementation-2026-05-08.md §2.3 for
-#      the reverse-false-positive analysis.
+#      product. Closes both:
+#       (a) the §B "完全 skip item" 漏报 gap documented in
+#           docs/fixes/oracle-leak-audit-2026-05-08.md §3.2 — e.g. ForeignMod
+#           (`extern "C" { fn ... }`) or other top-level kinds that
+#           top_level.rs:349-390 may handle by silently producing vec![];
+#       (b) the non-deterministic-translate-path silent skip discovered by
+#           P15-impl tier-1 typecheck rollout — see
+#           docs/fixes/ror-gate6-fix-2026-05-11.md and the wrapper header.
 #
-# NOTE: tool.toml is NOT Tera-rendered, so {{ ... }} substitution is unavailable
-# here. The entry function name comes via $TS_ENTRY_FN, which the runner sets
-# in the child env after stripping TS_* — see runner/src/exec.rs:178.
+# Env contract: ROCQ_OF_RUST_TOOLCHAIN_SYSROOT is re-exported from TS_*
+# (runner strips TS_* before spawn — runner/src/exec.rs:165) so the wrapper
+# script sees it as plain. TS_ENTRY_FN is re-injected by the runner after
+# the strip (runner/src/exec.rs:178), so the wrapper accesses it directly.
 
 command = [
-    "sh", "-c",
-    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT} && export DYLD_LIBRARY_PATH=$SYSROOT/lib && export PATH=$SYSROOT/bin:$PATH && mkdir -p rocq_translation && rocq-of-rust translate --path src/lib.rs --output-path rocq_translation 2>rocq_stderr.log; rc=$?; cat rocq_stderr.log >&2; if [ $rc -eq 0 ]; then if ! test -n \"$(find rocq_translation -name '*.v' -print -quit)\"; then echo '[rocq-oracle] FAIL: no .v product written' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size 0 | wc -l)\" -ne 0 ]; then echo '[rocq-oracle] FAIL: zero-byte .v product' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size +200c | wc -l)\" -eq 0 ]; then echo '[rocq-oracle] FAIL: no .v product > 200 bytes' >&2; rc=1; elif grep -rqE '\\(\\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )' rocq_translation; then echo '[rocq-oracle] FAIL: product contains explicit failure marker' >&2; rc=1; elif [ -n \"$TS_ENTRY_FN\" ] && ! grep -rqE \"^[[:space:]]*Definition[[:space:]]+$TS_ENTRY_FN[[:space:]]\" rocq_translation; then echo \"[rocq-oracle] FAIL: entry_fn '$TS_ENTRY_FN' missing from .v products (silent skip — top-level kind likely emitted vec![] or item dropped). See docs/fixes/oracle-leak-audit-2026-05-08.md §3.2.\" >&2; rc=1; fi; fi; rm -f rocq_stderr.log; exit $rc"
+    "env",
+    "ROCQ_OF_RUST_TOOLCHAIN_SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT}",
+    "${TS_PROJECT_ROOT}/tools/rocq-of-rust/rocq-of-rust-wrapper.sh"
 ]
 
 timeout_secs = 120

@@ -1,0 +1,7 @@
+[package]
+name = "runnable_add_two"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
