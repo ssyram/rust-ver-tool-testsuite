@@ -2,11 +2,12 @@
 
 ## 元数据
 
-- **数据源**：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **数据源**：`runs/run-1778238662-69805/`（2026-05-08，**P12-B 重跑**：3 工具 × 146 entries；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
+- **封堵前对照 run**：`runs/run-1778226613-5282/`（旧 oracle，prusti 数字与本次完全一致，详 §"P12-A 防御性 wrapper"）
 - **工具版本**：`Prusti 0.2.2`，commit `a0681ee`（2023-08-22），rustc `1.73.0-nightly (180dffba1 2023-08-14)`，pin 在 `nightly-2023-08-15-x86_64-apple-darwin`，整工具链通过 `arch -x86_64` 经 Rosetta 跑 x86_64 binary + x86_64 JDK 17 经 JNI 调 Viper
 - **工具配置**：`tools/prusti/`
-- **通过率**：SUCCESS 56 / 146 ≈ **38.4%**（FAILED 90，TIMEOUT 0）
-- **耗时分布**：avg 12594 ms / median 10434 ms / p90 22761 ms / p95 29633 ms / max 76666 ms（timeout 上限 900 s 远未触达）
+- **通过率**：SUCCESS 56 / 146 ≈ **38.4%**（FAILED 90，TIMEOUT 0；与旧 run 数字完全一致）
+- **耗时分布**：avg 7609 ms / median 6434 ms / p90 13352 ms / max 25219 ms（重跑只有 3 工具 / 高 CPU 利用率，比旧 run 短，timeout 上限 900 s 远未触达）
 - **时效声明**：本快照锚定上述 run id + prusti 0.2.2 commit `a0681ee` + nightly-2023-08-15 + corpus，不构成长期承诺。Prusti 上游不再积极维护此版本（Prusti 团队已转向新一代 prusti-rs / Rust verifier 项目），本快照随上游迭代失效。
 
 ## 工具内部 pipeline + 前端边界
@@ -37,24 +38,27 @@ cargo-prusti（cargo wrapper）
 
 `entry_mode = "bin"`（默认），runner 在副本 `src/bin/__ts_harness.rs` 渲染 `target_crate_name::entry_fn();` 调用。
 
-## SUCCESS 信号 + 形式严格性
+## SUCCESS 信号 + 形式严格性（P12-A 改造后）
+
+P12-A 把判据从"裸 `cargo-prusti` exit 0"升级为 wrapper post-check（`tools/prusti/prusti-strict-wrapper.sh`）—— exit 0 后必有 ≥ 1 个 `target/verify/log/viper_program/*.vpr` 否则重写 exit 1。这把 README §"检测条件"长期挂在文字层的"前端接受 = exit 0 且 .vpr 至少一个文件存在"提升为可执行 oracle。
 
 **判定式**：
 
 ```
-SUCCESS ⟺ cargo-prusti exit 0
-（即 prusti-rustc 编译通过 + Encoder 跑过所有 fn 并写出 .vpr）
+SUCCESS ⟺ cargo-prusti exit 0  ∧  find target/verify/log/viper_program -name '*.vpr' | wc -l ≥ 1
 ```
 
-**partial 暴露机制**：exit ≠ 0 与下列 stderr marker 之一（实测覆盖全部 90 条 FAILED）：
-- `[Prusti: unsupported feature] ...`（graceful 拒绝路径）
+**partial 暴露机制**（与旧 oracle 一致，覆盖全部 90 条 FAILED）：exit ≠ 0 + 下列 stderr marker 之一：
+- `[Prusti: unsupported feature] ...`（graceful 拒绝）
 - `[Prusti: internal error] ...`（encoder 抛出 internal error，如 fold-unfold permission）
-- `thread 'rustc' panicked at ...`（部分 unsupported case 走 ICE 路径）
+- `thread 'rustc' panicked at ...`（部分 unsupported case 走 ICE）
 
 **形式严格性**：
-- **0 误报**：✅ 形式可证。cargo-prusti exit 0 ⇔ encoder 完整跑过且无 unsupported feature 报告
-- **0 漏报**：✅ 形式可证。Prusti 任何 unsupported feature → `[Prusti: ...]` marker + exit ≠ 0；任何 internal error / closure ICE → exit ≠ 0
-- **漏报盲点**：无。NEW config 下 encoder 真跑，`PRUSTI_PRINT_HASH=true` 仅在 encoder 完成后跳过 Silicon——encoder 自身的 unsupported 检测路径完整
+- **0 误报**：✅ 形式可证。新规则的 reject 条件（exit 0 ∧ 0 .vpr）对真 SUCCESS **构造性不可达**——`PRUSTI_DUMP_VIPER_PROGRAM=true` 是 commit `a0681ee` 的 **unconditional** dump 站点（`prusti-server/src/process_verification.rs`），encoder 完成后必写 `.vpr` 再短路；`PRUSTI_PRINT_HASH=true` 仅在 dump 之后才 `return Success`。任何 exit 0 路径必经 dump → 必有 ≥ 1 .vpr。详 implementation log §2.2 反误报论证。
+- **0 漏报**：✅ 形式可证。Prusti 任何 unsupported feature / internal error / closure ICE → exit ≠ 0；wrapper 规则覆盖未来 commit drift 引入"encoder fast-path 跳过 lower 但仍 exit 0"的理论 silent path 窗口。
+- **漏报盲点**：无（针对 oracle 形式语义而言）。
+
+**P12-B 数字解释**：56 / 146 与 P12 封堵**前**的旧 run 完全一致——所有 56 个 SUCCESS 都 ≥ 13s 真跑过 encoder（旧 run avg 19907ms / median 18802ms / min 13097ms），必有 .vpr。**新 wrapper 是冗余防御层**：在当前 commit + config 下永远不触发 reject 条件，但把 README §"检测条件"的承诺从文字提升为 oracle 形式语义。一旦未来 prusti commit drift 让 encoder 走 fast-path 跳 lower 但仍 exit 0（合法 SUCCESS 路径在当前 config 下不可达，但理论窗口存在），新 wrapper 立即抓住。
 
 ## 关键转折：NEW config vs OLD config
 
@@ -185,4 +189,4 @@ note: Prusti version: 0.2.2, commit a0681ee 2023-08-22 ...
 
 ## 历史快照声明
 
-本报告所有数字基于 `runs/run-1778226613-5282`（2026-05-08）+ NEW config（NO_VERIFY=false + DUMP_VIPER_PROGRAM=true + PRINT_HASH=true）+ Prusti 0.2.2 commit `a0681ee` + nightly-2023-08-15 + JDK 17。Prusti 上游已转向新一代 verifier，本 commit 与现代 Rust ecosystem 之间的版本鸿沟（edition 2024、新 nightly feature 等）会越来越宽——本快照随之失效。NEW config 下的 38% 通过率是与同矩阵其他 verifier（hax×3 / verus / kani / charon×2 / aeneas×4 / creusot 等）跨工具对比有意义的数字，OLD config 下的 67% 不暴露 prusti encoder 边界，应作废。
+本报告数字基于 `runs/run-1778238662-69805`（P12-B 重跑）+ wrapper-strict-oracle-v2（基于 `prusti-strict-wrapper.sh` 的 .vpr 存在性 check）+ NEW config（NO_VERIFY=false + DUMP_VIPER_PROGRAM=true + PRINT_HASH=true）+ Prusti 0.2.2 commit `a0681ee` + nightly-2023-08-15 + JDK 17。封堵前对照 run `run-1778226613-5282` 数字与本 run 一致——这印证 NEW config 在当前 commit 下已经抓住所有 silent path，新 wrapper 是反 commit-drift 的冗余防御层。Prusti 上游已转向新一代 verifier，本 commit 与现代 Rust ecosystem 之间的版本鸿沟（edition 2024、新 nightly feature 等）会越来越宽——本快照随之失效。NEW config 下的 38% 通过率是与同矩阵其他 verifier（hax×3 / verus / kani / charon×2 / aeneas×4 / creusot 等）跨工具对比有意义的数字，OLD config 下的 67% 不暴露 prusti encoder 边界，应作废。

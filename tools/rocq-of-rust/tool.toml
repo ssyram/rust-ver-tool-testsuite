@@ -19,12 +19,28 @@
 # src/bin/__ts_harness.rs but is irrelevant — rocq-of-rust only reads
 # src/lib.rs, never the harness file.
 #
+# Oracle (6 gates):
+#   1. exit code = 0
+#   2. ≥ 1 .v product exists
+#   3. no zero-byte .v product
+#   4. ≥ 1 .v product > 200 bytes
+#   5. no failure marker in any .v: (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )
+#   6. NEW: entry_fn name (TS_ENTRY_FN, injected by runner — see
+#      runner/src/exec.rs:178) appears as a `Definition <fn>` in some .v
+#      product. Closes the §B "完全 skip item" 漏报 gap documented in
+#      docs/fixes/oracle-leak-audit-2026-05-08.md §3.2 — e.g. ForeignMod
+#      (`extern "C" { fn ... }`) or other top-level kinds that
+#      top_level.rs:349-390 may handle by silently producing vec![].
+#      See docs/fixes/oracle-leak-rules-implementation-2026-05-08.md §2.3 for
+#      the reverse-false-positive analysis.
+#
 # NOTE: tool.toml is NOT Tera-rendered, so {{ ... }} substitution is unavailable
-# here. Anything that needs the example crate name must come from cwd / env.
+# here. The entry function name comes via $TS_ENTRY_FN, which the runner sets
+# in the child env after stripping TS_* — see runner/src/exec.rs:178.
 
 command = [
     "sh", "-c",
-    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT} && export DYLD_LIBRARY_PATH=$SYSROOT/lib && export PATH=$SYSROOT/bin:$PATH && mkdir -p rocq_translation && rocq-of-rust translate --path src/lib.rs --output-path rocq_translation 2>rocq_stderr.log; rc=$?; cat rocq_stderr.log >&2; if [ $rc -eq 0 ]; then if ! test -n \"$(find rocq_translation -name '*.v' -print -quit)\"; then echo '[rocq-oracle] FAIL: no .v product written' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size 0 | wc -l)\" -ne 0 ]; then echo '[rocq-oracle] FAIL: zero-byte .v product' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size +200c | wc -l)\" -eq 0 ]; then echo '[rocq-oracle] FAIL: no .v product > 200 bytes' >&2; rc=1; elif grep -rqE '\\(\\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )' rocq_translation; then echo '[rocq-oracle] FAIL: product contains explicit failure marker' >&2; rc=1; fi; fi; rm -f rocq_stderr.log; exit $rc"
+    "SYSROOT=${TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT} && export DYLD_LIBRARY_PATH=$SYSROOT/lib && export PATH=$SYSROOT/bin:$PATH && mkdir -p rocq_translation && rocq-of-rust translate --path src/lib.rs --output-path rocq_translation 2>rocq_stderr.log; rc=$?; cat rocq_stderr.log >&2; if [ $rc -eq 0 ]; then if ! test -n \"$(find rocq_translation -name '*.v' -print -quit)\"; then echo '[rocq-oracle] FAIL: no .v product written' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size 0 | wc -l)\" -ne 0 ]; then echo '[rocq-oracle] FAIL: zero-byte .v product' >&2; rc=1; elif [ \"$(find rocq_translation -name '*.v' -size +200c | wc -l)\" -eq 0 ]; then echo '[rocq-oracle] FAIL: no .v product > 200 bytes' >&2; rc=1; elif grep -rqE '\\(\\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )' rocq_translation; then echo '[rocq-oracle] FAIL: product contains explicit failure marker' >&2; rc=1; elif [ -n \"$TS_ENTRY_FN\" ] && ! grep -rqE \"^[[:space:]]*Definition[[:space:]]+$TS_ENTRY_FN[[:space:]]\" rocq_translation; then echo \"[rocq-oracle] FAIL: entry_fn '$TS_ENTRY_FN' missing from .v products (silent skip — top-level kind likely emitted vec![] or item dropped). See docs/fixes/oracle-leak-audit-2026-05-08.md §3.2.\" >&2; rc=1; fi; fi; rm -f rocq_stderr.log; exit $rc"
 ]
 
 timeout_secs = 120

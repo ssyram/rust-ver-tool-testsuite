@@ -59,13 +59,13 @@ GitHub: https://github.com/viperproject/prusti-dev
   - `thread 'rustc' panicked at prusti-interface/src/environment/mir_storage.rs`
     （部分 unsupported case 走 ICE 路径，如 closure 表达式）
 
-runner 的 exit-code 判定即可区分前端接受 / 拒绝；产物存在性是辅助佐证。
+两个条件由 [`prusti-strict-wrapper.sh`](prusti-strict-wrapper.sh) 联合实施（2026-05-08 起）。Wrapper 在 cargo-prusti exit 0 后追加 `find target/verify/log/viper_program -name '*.vpr' | wc -l ≥ 1` 检查；0 .vpr 即 FAILED。先前实施只看 exit code，缺产物存在性 check（详见 [`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.6）。
 
 ### 形式严格性
 
-- **0 误报（不冤枉能力）**：✅ 形式可证。cargo-prusti exit 0 ⇔ encoder 完整跑过且无 unsupported feature 报告
-- **0 漏报（不高估能力）**：✅ 形式可证。Prusti 任何 unsupported feature → `[Prusti: ...]` marker + exit ≠ 0；任何 internal error / closure ICE → exit ≠ 0
-- **漏报盲点**：无（NEW config 下 encoder 真跑，`PRUSTI_PRINT_HASH=true` 仅在 encoder 完成后跳过 Silicon——encoder 自身的 unsupported 检测路径完整）
+- **0 误报（不冤枉能力）**：✅ 形式可证。cargo-prusti exit 0 ⇔ encoder 完整跑过且无 unsupported feature 报告；wrapper .vpr 检查为下游辅助
+- **0 漏报（不高估能力）**：✅ 形式可证 + wrapper 防御。Prusti 任何 unsupported feature → `[Prusti: ...]` marker + exit ≠ 0；任何 internal error / closure ICE → exit ≠ 0；即使未来 toolchain drift 让 encoder fast-path silent skip lower → wrapper 检 .vpr 数量为 0 → FAILED
+- **漏报盲点**：无（NEW config + wrapper .vpr 检查双重保险下，encoder silent fast-path 已被 wrapper 闭环；剩余风险仅限于 encoder 内部 silent skip 单个 fn item 但仍写出非空 .vpr 的极端情形——理论窗口，实测 0 现象）
 
 ## 与旧 `PRUSTI_NO_VERIFY=true` 配置的对比
 

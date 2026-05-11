@@ -1,26 +1,43 @@
 # VeriFast 26.01 — standalone Rust verifier (separation logic)
 #
 # Invocation strategy:
-#   - verifast is called directly on src/lib.rs (NOT via cargo verifast, which
-#     fails when the crate has both lib and bin targets)
-#   - cwd = example crate root (set by runner)
-#   - -shared        : skip the "main function required" check (lib crate)
-#   - -target macOS  : 64-bit LP64 target (arm64-apple-macosx)
-#   - -skip_specless_fns : skip functions without //@ req / //@ ens annotations.
-#                     Without this flag, verifast fails on plain-Rust code that
-#                     has no specs (overflow checks fire, etc.).
-#                     With it, plain-Rust samples exit 0 (tool saw no specs →
-#                     nothing to disprove); annotated samples exercise the prover.
-#   - -ignore_unwind_paths : ignore panic/unwind paths; sound only when the
-#                     example is compiled with -C panic=abort, but acceptable
-#                     for a feature-coverage screening run.
-#   - -disable_overflow_check : suppress arithmetic overflow errors on unannotated
-#                     code that has no range preconditions.
-#   - -read_options_from_source_file : honour per-file //verifast_options{...}
-#                     directives; lets annotated examples override the defaults.
+#   - We invoke verifast through tools/verifast/verifast-strict-wrapper.sh
+#     (NOT directly), which runs verifast with the same flags below and then
+#     post-checks for the vacuous-pass signature
+#         "0 errors found (N statements verified)" with N ≤ 40
+#     to close the §A 漏报 gap documented in
+#     docs/fixes/oracle-leak-audit-2026-05-08.md §3.1 and the implementation
+#     log docs/fixes/oracle-leak-rules-implementation-2026-05-08.md §2.1.
+#   - The runner strips all TS_* envvars before spawning children
+#     (runner/src/exec.rs:165), so we re-export TS_VERIFAST_BIN as the
+#     non-prefixed VERIFAST_BIN that the wrapper consumes (same convention
+#     as tools/aeneas-coq/tool.toml).
+#   - The flags below are documented again here for reference; the wrapper
+#     invokes verifast with exactly this argv:
+#       -target macOS  : 64-bit LP64 target (arm64-apple-macosx)
+#       -shared        : skip the "main function required" check (lib crate)
+#       -skip_specless_fns : skip functions without //@ req / //@ ens
+#                       annotations. Without this flag, verifast fails on
+#                       plain-Rust code that has no specs (overflow checks
+#                       fire, etc.). With it, plain-Rust samples exit 0
+#                       (tool saw no specs → nothing to disprove); annotated
+#                       samples exercise the prover.
+#                       This is the flag whose silent-skip behaviour the
+#                       wrapper is closing — see the wrapper header.
+#       -ignore_unwind_paths : ignore panic/unwind paths; sound only when
+#                       the example is compiled with -C panic=abort, but
+#                       acceptable for a feature-coverage screening run.
+#       -disable_overflow_check : suppress arithmetic overflow errors on
+#                       unannotated code that has no range preconditions.
+#       -read_options_from_source_file : honour per-file
+#                       //verifast_options{...} directives; lets annotated
+#                       examples override the defaults.
 #
-# exit 0  → verification succeeded (or no specs to check)  → SUCCESS
-# exit 1  → verification error                              → FAILED
+# exit 0 (passed wrapper)  → verification succeeded (and N > 40 for
+#                            spec-bearing entries, see wrapper) → SUCCESS
+# exit 2 (rewritten by wrapper) → vacuous pass detected (N ≤ 40,
+#                                  spec-less corpus baseline)    → FAILED
+# exit 1 (verifast direct)  → verification error                  → FAILED
 #
 # Limitation: only src/lib.rs is fed to verifast; the src/bin/__ts_harness.rs
 # harness is written by the runner (framework contract) but is intentionally
@@ -28,14 +45,9 @@
 # The harness template is a minimal placeholder required by the framework.
 
 command = [
-  "${TS_VERIFAST_BIN}",
-  "-target", "macOS",
-  "-shared",
-  "-skip_specless_fns",
-  "-ignore_unwind_paths",
-  "-disable_overflow_check",
-  "-read_options_from_source_file",
-  "src/lib.rs"
+  "env",
+  "VERIFAST_BIN=${TS_VERIFAST_BIN}",
+  "${TS_PROJECT_ROOT}/tools/verifast/verifast-strict-wrapper.sh"
 ]
 
 timeout_secs = 120
