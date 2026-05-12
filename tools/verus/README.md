@@ -27,8 +27,8 @@ GitHub: <https://github.com/verus-lang/verus>
 为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = `verus --no-verify --log vir` exit 0**（VIR 构造完成）。任何 partial → FAILED。
 
 - **partial 暴露机制**：Verus 任何 rejection（lifetime / type check / `assume_specification` 缺失 / `verus_builtin not imported` 等）→ exit ≠ 0
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。verus exit 0 ⇔ VIR 构造完成无错误
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。Verus 任何 rejection 都通过 `dcx().emit` 触发 exit ≠ 0
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。verus exit 0 ⇔ VIR 构造完成无错误
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层论证。Verus 任何 rejection 都通过 `dcx().emit` 触发 exit ≠ 0
 - **漏报盲点**：
   - 求解层假设（注：`--no-verify` 同时切 AIR + Z3，最深前端到 VIR——所以"前端边界 = VIR 构造完成"）
   - **derived auto-spec 缺失继续**（D3.6 / 2026-05-12 补完）：aeneas-limit/float-types/make_measurement 等 v5 SUCCESS entries 含 verus `"continuing, but without adding a specification for the derived Clone impl"` 警告。"continuing" 表示 VIR 构造完成（前端完成），缺的是 `#[derive(Clone)]` 的 auto-spec 生成——属 verus → SMT 求解的中间步骤（spec gen 不属前端）。按宪法 §六-3 前端测量原则保持 SUCCESS；列出以诚实声明。

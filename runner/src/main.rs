@@ -160,7 +160,9 @@ fn main() -> Result<()> {
         .iter()
         .map(|t| report::ToolMeta {
             name: t.name.clone(),
-            command: t.command.clone(),
+            // P41: use raw ${TS_*} form (un-expanded) for results.json — avoids
+            // embedding host-specific absolute paths in published artifacts.
+            command: t.command_raw.clone(),
             timeout_secs: t.timeout_secs,
             entry_mode: format!("{:?}", t.entry_mode).to_lowercase(),
             extra_cargo_deps: t.extra_cargo_deps.clone(),

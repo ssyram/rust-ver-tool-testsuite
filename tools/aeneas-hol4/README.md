@@ -42,7 +42,7 @@ aeneas-hol4 的 FAILED 集合中 `trait_decl` panic 占比最高，是该 backen
 
 **partial 暴露机制**：aeneas `Errors.error_list` 单一信号；hol4 backend 还有 `trait_decl_kind_to_qualif` 触发的 OCaml panic（exit 2）—— 共同指向 hol4 backend 的硬天花板。
 
-**形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空 + 无 OCaml panic
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。aeneas exit 0 ⇔ `Errors.error_list` 空 + 无 OCaml panic
 
 **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路封堵。主通路 `craise` / `Invalid_argument` panic → exit ≠ 0；**v6 cc-route audit (2026-05-12) 发现 Warn 通道 partial 自陈**（不走 craise，exit 仍 0），wrapper 加 grep gate 拦截。
 

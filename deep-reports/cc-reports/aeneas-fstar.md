@@ -44,7 +44,7 @@ stage 2: aeneas -backend fstar -dest fstar-out  <crate>.llbc  →  fstar-out/<Mo
 
 形式严格性 0 误报 / 0 漏报状态（按 `tool-integration.md` §三 / §四）：
 
-- **0 误报**：✅ 主通路形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空（`craise` 单一入口 + `Main.ml` exit 决定 — `tool-integration.md` §三 直接列出的工具之一）。wrapper 补抓通路按 §四.2 双向实测—— 4 个 Warn 字符串与 charon `^error:` / `is not supported` 都是 aeneas/charon 源码内部识别为 partial 时才发的字符串，不会误命中合法代码
+- **0 误报**：✅ 主通路源码层论证。aeneas exit 0 ⇔ `Errors.error_list` 空（`craise` 单一入口 + `Main.ml` exit 决定 — `tool-integration.md` §三 直接列出的工具之一）。wrapper 补抓通路按 §四.2 双向实测—— 4 个 Warn 字符串与 charon `^error:` / `is not supported` 都是 aeneas/charon 源码内部识别为 partial 时才发的字符串，不会误命中合法代码
 - **0 漏报**：⚠️ 主通路形式可证（`craise` 单一）；wrapper 补抓通路属 §四.3 "实践有效性"——抓**已知** silent path（v6 cc-route audit 时枚举的 4+2 个 Warn/Error 模式），上游引入新 silent pattern 时机制会滞后
 
 **漏报盲点（诚实声明）**：
@@ -52,7 +52,7 @@ stage 2: aeneas -backend fstar -dest fstar-out  <crate>.llbc  →  fstar-out/<Mo
 - ✅ 已封堵：aeneas Warn 通道 4 类（mutually-recursive trait / associated type 警告 / builtin model 缺字段 / core trait method silent drop）；charon 通道 2 类（`is not supported` warning + `^error:` type-error-after-transformations 但 charon 仍 exit 0）
 - ⚠️ 仍可能盲点：上游若新增不带这 6 个标记字符串的 silent partial 路径 → 需扩 wrapper grep
 - ⚠️ aeneas / charon 完全 skip item（既不写 sorry / 不发 Warn / Error，item 不出现在产物里）—— 与同族 aeneas-lean / aeneas-coq / aeneas-hol4 共享此盲点；按 §六 当前 crate 焦点降低概率但不消除：本测试集 entry 函数命名固定（`__ts_inner::<entry>`）+ entry-mode lib 强制 reach，若 silent skip 命中 entry crate 自有 item 才算真漏报
-- 主信号通路本身不形式证明 SUCCESS ⟹ 真 SUCCESS——避免按 P30 已推翻的"形式可证 0 漏报"过强自陈
+- 主信号通路本身不形式证明 SUCCESS ⟹ 真 SUCCESS——避免按 P30 已推翻的"实测 + 源码层论证 0 漏报"过强自陈
 
 ## 失败分桶（按 `tool-integration.md` §四.5 归因分类）
 

@@ -29,8 +29,8 @@ GitHub: https://github.com/creusot-rs/creusot
 为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = `cargo-creusot` exit 0**（默认无 subcommand 即只翻译到 `.coma`，不调用 why3）。任何 partial → FAILED。
 
 - **partial 暴露机制**：creusot 用 `crash_and_error / span_err / span_fatal / dcx().span_err` 把任何 unsupported 升级为 rustc error → exit 101
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。cargo-creusot exit 0 ⇔ 翻译完整无 rustc error
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。creusot 用 `crash_and_error / span_err / span_fatal` 把所有 unsupported 升级为 rustc error，无 silent path
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。cargo-creusot exit 0 ⇔ 翻译完整无 rustc error
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层论证。creusot 用 `crash_and_error / span_err / span_fatal` 把所有 unsupported 升级为 rustc error，无 silent path
 - **漏报盲点**：无
 
 ## 安装

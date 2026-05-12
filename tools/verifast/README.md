@@ -53,7 +53,7 @@ VeriFast 是 separation-logic 符号执行验证器，pipeline：rustc-verifast 
 第二道门由 [`tools/verifast/verifast-strict-wrapper.sh`](verifast-strict-wrapper.sh) 强制；2026-05-08 之前的 oracle 仅用 exit 0 单道门，会让 spec-less corpus 上的 vacuous pass 全部错判 SUCCESS（详见 [`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.1）。
 
 - **partial 暴露机制**：rustc-verifast 任何 IR 构造失败（async / closure / 浮点 / const-generic 等）→ exit ≠ 0；symex verify err → exit 1；vacuous pass（symex 未触及 user file）→ wrapper 重写为 exit 2
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。verifast exit 0 + verbose 输出含 user-file 行 ⇔ symex 在用户代码上执行了至少 1 条 statement（每条 verbose 行就是 verifast 自己的 tracing 标签）
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。verifast exit 0 + verbose 输出含 user-file 行 ⇔ symex 在用户代码上执行了至少 1 条 statement（每条 verbose 行就是 verifast 自己的 tracing 标签）
 - **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 设计论证。`-skip_specless_fns` 跳过 user fn 时 verifast 不会发任何带用户源文件路径的 verbose 行（仅 prelude 行）—— 0 漏报由 verifast 设计强制；rustc-verifast 任何 IR 构造失败仍走 exit ≠ 0 老路径
 - **反误报双向实测**：[`oracle-validation/`](oracle-validation/) 子目录含 spec-less + spec-bearing 两个 micro-test，验证规则在两个方向上都正确触发 / 不触发；详见该目录 README
 

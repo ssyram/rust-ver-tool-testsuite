@@ -36,8 +36,8 @@ KMIR 的子命令分两类：
 - **partial 暴露机制（双轨）**：
   1. cargo + stable-mir-json 编译失败 → exit ≠ 0
   2. K interpreter 卡 stuck（K cell 残留 `#execTerminator(InlineAsm)` / `#mkAggregate(closure)` 等 unsupported 项）→ kmir CLI 仍 exit 0，但 oracle 通过 grep `#EndProgram ~> .K` 终结模式翻为 exit 2
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。`#EndProgram ~> .K` 是 K Framework 解释器的稳定终止 signature——K cell 化简到此 ⇔ 解释执行完整完成
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。K-stuck（K cell 卡在 unsupported terminator）grep 已封死 silent path；cargo + stable-mir-json 编译失败也直接 exit ≠ 0
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。`#EndProgram ~> .K` 是 K Framework 解释器的稳定终止 signature——K cell 化简到此 ⇔ 解释执行完整完成
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层论证。K-stuck（K cell 卡在 unsupported terminator）grep 已封死 silent path；cargo + stable-mir-json 编译失败也直接 exit ≠ 0
 - **漏报盲点**：无
 
 ## 安装

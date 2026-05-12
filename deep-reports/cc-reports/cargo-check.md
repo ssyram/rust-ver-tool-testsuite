@@ -44,11 +44,13 @@ exit 0（不进入 codegen / LLVM IR / 链接）
 
 形式严格性 0 误报 / 0 漏报状态（按 `tool-integration.md` §三 / §四.1）：
 
-- **0 误报**：形式可证。rustc 单一 exit 信号，exit 0 ⇔ type / borrow check 全通过。这是 rustc 自身实现保证——任何 check 失败路径都升 `rustc_errors::Diagnostic` 并最终影响 exit code
-- **0 漏报**：形式可证。任何 check 失败 → rustc exit ≠ 0。rustc 不存在 silent skip 路径（rustc 没有"我跳过这部分检查也算成功"的模式——与 verifier 工具如 hax / aeneas 完全不同）
-- **漏报盲点**：无（与所有其他工具不同；cargo-check 是矩阵中唯一可宣告"0 误报 / 0 漏报均形式可证"的项）
+- **0 误报**：by-design no-silent-skip + rustc 源码层论证。rustc 单一 exit 信号，exit 0 ⇔ type / borrow check 全通过——任何 check 失败路径升 `rustc_errors::Diagnostic` 并最终影响 exit code
+- **0 漏报**：by-design no-silent-skip + rustc 源码层论证。任何 check 失败 → rustc exit ≠ 0。rustc 不存在 silent skip 路径（rustc 没有"我跳过这部分检查也算成功"的模式——与 verifier 工具如 hax / aeneas 完全不同）
+- **漏报盲点**：
+  - 边界情况理论可能：rustc 内部 bug 让某种 unsafe code 漏过 check（极罕见，未在 v6 corpus 命中）
+  - cargo-check 不做 verifier-style 验证，"通过" = "rustc 接受"，不蕴含 "代码正确"——baseline 角色而非工具评估对象
 
-**注**：此处"形式可证"指可溯源到 rustc 源码层的单一信号通路 + 无 silent skip 设计；非项目自陈，rustc 的 error 模型是 Rust 官方的设计约束。这条强声明在本工具上站得住，是因为 cargo-check 的 oracle 与 rustc exit code 完全重合——不存在 P30 在其他工具上推翻"0 漏报"的"silent skip / partial 自陈"路径。
+**注**：此处 "by-design no-silent-skip" 指 rustc 源码层的单一信号通路 + 无 silent skip 设计；非项目层 machine-checked proof，是基于 rustc 的 error 模型（Rust 官方的设计约束）的工程论证。这条强声明在 cargo-check 上站得住，是因为 cargo-check 的 oracle 与 rustc exit code 完全重合——不存在 P30 在其他工具上推翻 "0 漏报" 的 "silent skip / partial 自陈" 路径。
 
 ## 失败分桶（按 P31 §四.5 归因分类）
 
@@ -63,9 +65,9 @@ exit 0（不进入 codegen / LLVM IR / 链接）
 
 ## 漏报盲点（诚实声明）
 
-无。理由见上节"0 漏报：形式可证"。
+详上节末段"漏报盲点"。
 
-cargo-check 与项目 wrapper-based 工具（aeneas / hax / kmir / rocq-of-rust / verifast / prusti / verus 等）的关键差异：项目 wrapper 添加的 partial 暴露 gate 都是为了补 grep silent skip——cargo-check 没有这层需求，因此也不需要列"已封堵盲点" / "未封堵盲点"两栏。
+cargo-check 与项目 wrapper-based 工具（aeneas / hax / kmir / rocq-of-rust / verifast / prusti / verus 等）的关键差异：项目 wrapper 添加的 partial 暴露 gate 都是为了补 grep silent skip——cargo-check 因 rustc by-design no-silent-skip 不需要这层 gate。
 
 ## v5.1 → v6 ΔS 解释
 

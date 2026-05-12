@@ -39,9 +39,9 @@ SUCCESS ⟺ verus exit 0（即 Verus 前端完成 type/lifetime/mode check + VIR
 
 **wrapper 补抓通路**：本工具无项目侧 wrapper；只在 `harness.rs.tera` 强制 `mod __ts_inner;` 写在 `verus! { }` 块内、不带 `#[verifier::external]`，保证 inner 的真实代码受 verus 前端逐项检查、不会被透传给 stock rustc。这条不变量是反作弊核心（详 `tools/verus/README.md` §"反作弊"）。
 
-**形式严格性 0 误报状态**：✅ 形式可证。verus exit 0 ⇔ VIR 构造完成且 verus 前端无错误——任何 rejection（lifetime / type / mode / vstd link / `assume_specification` 缺失 / `verus_builtin not imported` 等）通过 `dcx().emit` 触发 exit ≠ 0。
+**形式严格性 0 误报状态**：✅ 实测 + 源码层论证。verus exit 0 ⇔ VIR 构造完成且 verus 前端无错误——任何 rejection（lifetime / type / mode / vstd link / `assume_specification` 缺失 / `verus_builtin not imported` 等）通过 `dcx().emit` 触发 exit ≠ 0。
 
-**形式严格性 0 漏报状态**：✅ 大部分形式可证，但存在一类已知的盲点：
+**形式严格性 0 漏报状态**：✅ 实测 + 源码层论证，但存在一类已知的盲点：
 
 - **derived auto-spec 缺失继续**（D3.6 / 2026-05-12 README 补完）：部分 SUCCESS entry（如 `aeneas-limit/float-types/make_measurement`）的 stderr 含 verus 警告 `"autoderive Clone impl does not take the form Verus expects; continuing, but without adding a specification for the derived Clone impl"`。"continuing" 表示 VIR 构造完成、verus 前端不 reject；缺的是 `#[derive(Clone)]` 的 auto-spec 生成——属 verus → SMT 求解的中间步骤（spec gen 不属前端）。按宪法 §六 前端测量原则保持 SUCCESS。**这是诚实声明的边界**：测的是前端接受、不是后端 spec 完备。
 

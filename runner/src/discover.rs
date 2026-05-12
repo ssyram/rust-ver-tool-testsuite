@@ -411,7 +411,14 @@ impl Default for EntryMode {
 /// A discovered tool integration: tools/<name>/{tool.toml + harness.rs.tera}.
 pub struct Tool {
     pub name: String,
+    /// Fully expanded argv used at spawn time (${TS_*} resolved to host paths).
     pub command: Vec<String>,
+    /// Raw argv as written in `tool.toml` (`${TS_*}` placeholders un-expanded).
+    /// Used for `results.json` serialization to avoid embedding host-specific
+    /// absolute paths in published artifacts — readers see the parametric form
+    /// and resolve via their own `.env`. The spawn-time `command` field above
+    /// remains fully expanded for execution.
+    pub command_raw: Vec<String>,
     /// Per-tool timeout in seconds. After this duration the subprocess is
     /// SIGKILL'd and the task is marked FAILED with `timed_out: true` (see §7.5).
     pub timeout_secs: u64,
@@ -561,6 +568,10 @@ pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
         // Expand ${VAR} in command/version_command against the runner process
         // env (sourced from .env by the user before launch). Keeps argv as an
         // array; no shell wrapping is required for variable substitution.
+        // P41: also keep raw form (un-expanded ${TS_*}) for results.json so
+        // published artifacts don't embed host-specific absolute paths —
+        // readers resolve via their own .env.
+        let command_raw: Vec<String> = parsed.command.clone();
         let command: Vec<String> = parsed.command.into_iter().map(|s| expand_env(&s)).collect();
         let version_command: Vec<String> = parsed
             .version_command
@@ -571,6 +582,7 @@ pub fn find_tools(tools_dir: &Path) -> Result<Vec<Tool>> {
         result.push(Tool {
             name,
             command,
+            command_raw,
             timeout_secs: parsed.timeout_secs,
             harness_template: template,
             extra_cargo_deps: parsed.extra_cargo_deps,

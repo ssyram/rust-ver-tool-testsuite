@@ -58,7 +58,7 @@ wrapper 补抓通路：四类 Warn 自陈 + charon "is not supported" / "^error:
 
 按 `tool-integration.md` §四.1 与 §四.3：
 
-- 主通路 craise → exit ≠ 0 是 aeneas 内部唯一 unsupported 入口，形式可证 0 漏报
+- 主通路 craise → exit ≠ 0 是 aeneas 内部唯一 unsupported 入口，实测 + 源码层论证 0 漏报
 - Warn 通道 + charon stage silent 这两条非 craise 通路，由 wrapper grep 补抓——**这是实测有效性，不构成形式 0 漏报**（按 §四.3：grep marker 只覆盖已知 silent path）
 
 ## 失败分桶（按 P31 §四.5 + P35 §六 当前 crate 焦点归因分类）

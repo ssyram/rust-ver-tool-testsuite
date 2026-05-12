@@ -47,7 +47,7 @@ stage 1 做完整 cargo build + 把 MIR 序列化为 LLBC；stage 2 以 LLBC 为
 
 形式严格性 0 误报 / 0 漏报状态：
 
-- **0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空 ⇔ `craise` 主通路无 push ⇔ 翻译完整。叠加上述 wrapper gate 后，SUCCESS 同时满足"charon 无 silent partial / aeneas 无 Warn-channel partial"。
+- **0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。aeneas exit 0 ⇔ `Errors.error_list` 空 ⇔ `craise` 主通路无 push ⇔ 翻译完整。叠加上述 wrapper gate 后，SUCCESS 同时满足"charon 无 silent partial / aeneas 无 Warn-channel partial"。
 - **0 漏报（不高估能力）**：**实测 + wrapper 双通路封堵，非源码层证明**。aeneas 主信号通路 `craise` 已封死；charon 的 silent partial（exit 0 + stderr warn）+ aeneas 的 Warn 通道两路绕开点都已加 wrapper grep gate。但本断言仍依赖 grep 模式列表的完备性——上游若新增新的 partial 自陈措辞（例如不在 4 类 Warn / 2 类 charon 信号内的措辞），需扩 grep。
 - **漏报盲点**（2026-05-12 v6 修订后）：
   - aeneas / charon 上游新增 partial 自陈措辞 → 需扩 wrapper grep pattern list

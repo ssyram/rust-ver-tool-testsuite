@@ -29,7 +29,7 @@ Aeneas 是**纯翻译工具**，pipeline 终点是 `.fst` 文件落盘——下�
 
 **partial 暴露机制**：aeneas `Errors.error_list` 单一信号——`Main.ml:773` `if has_errors then exit 1`。
 
-**形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。aeneas exit 0 ⇔ `Errors.error_list` 空
 
 **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路封堵。主通路 `craise` → exit ≠ 0；**v6 cc-route audit (2026-05-12) 发现 Warn 通道 partial 自陈**（不走 craise，exit 仍 0），wrapper 加 grep gate 拦截。
 

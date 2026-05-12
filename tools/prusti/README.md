@@ -63,8 +63,8 @@ GitHub: https://github.com/viperproject/prusti-dev
 
 ### 形式严格性
 
-- **0 误报（不冤枉能力）**：✅ 形式可证。cargo-prusti exit 0 ⇔ encoder 完整跑过且无 unsupported feature 报告；wrapper .vpr 检查为下游辅助
-- **0 漏报（不高估能力）**：✅ 形式可证 + wrapper 防御。Prusti 任何 unsupported feature → `[Prusti: ...]` marker + exit ≠ 0；任何 internal error / closure ICE → exit ≠ 0；即使未来 toolchain drift 让 encoder fast-path silent skip lower → wrapper 检 .vpr 数量为 0 → FAILED
+- **0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。cargo-prusti exit 0 ⇔ encoder 完整跑过且无 unsupported feature 报告；wrapper .vpr 检查为下游辅助
+- **0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路。Prusti 任何 unsupported feature → `[Prusti: ...]` marker + exit ≠ 0；任何 internal error / closure ICE → exit ≠ 0；即使未来 toolchain drift 让 encoder fast-path silent skip lower → wrapper 检 .vpr 数量为 0 → FAILED
 - **漏报盲点**：无（NEW config + wrapper .vpr 检查双重保险下，encoder silent fast-path 已被 wrapper 闭环；剩余风险仅限于 encoder 内部 silent skip 单个 fn item 但仍写出非空 .vpr 的极端情形——理论窗口，实测 0 现象）
 
 ## 与旧 `PRUSTI_NO_VERIFY=true` 配置的对比

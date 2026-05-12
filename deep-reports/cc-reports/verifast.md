@@ -46,7 +46,7 @@ verifast -verbose 1 -target macOS -shared -skip_specless_fns
   - ≥ 1 行 → 透传 SUCCESS（symex 真在用户代码上跑了 statement）
   - 0 行 → wrapper 重写为 exit 2 + stderr 诊断 → FAILED（vacuous pass：`-skip_specless_fns` 跳掉所有 user fn，仅 prelude 被 verify）
 
-**形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证 + 双向实测。新规则的 reject 条件（exit 0 ∧ 0 user-file mention）对真 SUCCESS **构造性不可达**——spec-bearing fn 必有 `//@ req`，一旦未被 `-skip_specless_fns` 跳掉，verifast 必走 prototype-implementation-check + per-statement symex，每条都打 `<source-path>(LINE,COL):` 标签。`oracle-validation/spec_bearing_add_one.rs` 实测：spec-bearing 最小例 exit 0 / 10 行 user-file 命中 → wrapper 透传 ✓。
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证 + 双向实测。新规则的 reject 条件（exit 0 ∧ 0 user-file mention）对真 SUCCESS **构造性不可达**——spec-bearing fn 必有 `//@ req`，一旦未被 `-skip_specless_fns` 跳掉，verifast 必走 prototype-implementation-check + per-statement symex，每条都打 `<source-path>(LINE,COL):` 标签。`oracle-validation/spec_bearing_add_one.rs` 实测：spec-bearing 最小例 exit 0 / 10 行 user-file 命中 → wrapper 透传 ✓。
 
 **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 设计论证。`-skip_specless_fns` 让 verifast 在 user fn 上 0 verbose 行；`oracle-validation/spec_less_baseline.rs` 实测：spec-less → exit 0 / 0 行 → wrapper 重写 exit 2 ✓。
 

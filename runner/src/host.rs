@@ -26,8 +26,12 @@ pub struct HostInfo {
 }
 
 pub fn collect() -> HostInfo {
+    // P41: hostname intentionally NOT collected (was reviewer A finding for
+    // anonymization in published artifacts; the actual hostname carries no
+    // reproducibility value — OS / arch / kernel / CPU brand / mem / cpus
+    // suffice to characterize the host class).
     HostInfo {
-        hostname: cmd_oneline("hostname", &[]),
+        hostname: None,
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         kernel: cmd_oneline("uname", &["-r"]),

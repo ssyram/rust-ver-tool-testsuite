@@ -39,7 +39,7 @@ Stage B 里 aeneas 单进程跑完整翻译：read_llbc → translate_crate_to_p
 
 **partial 暴露机制**：aeneas `Errors.error_list` 单一信号——每次 `craise` push 一项；结束时 `Main.ml:773` `if has_errors then exit 1`。任何 unsupported 项都 push error_list；exit 2 = OCaml panic 无产物。
 
-**形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空 ⇔ 翻译完整
+**形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + 源码层论证。aeneas exit 0 ⇔ `Errors.error_list` 空 ⇔ 翻译完整
 
 **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路封堵。aeneas 主信号通路是 `craise` → `Errors.error_list` → exit ≠ 0。**但 v6 cc-route audit (2026-05-12) 发现 aeneas 还有 Warn 通道 partial 自陈**（不走 craise，exit 仍 0），wrapper 加 grep gate 拦截：
 
