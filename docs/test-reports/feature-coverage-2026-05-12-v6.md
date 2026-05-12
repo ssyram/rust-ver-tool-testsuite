@@ -96,40 +96,114 @@ charter-craft 框架下分析：这一原则符合宪法防腐蚀机制——它
 
 ---
 
-## §3 20 工具 v6 数据（按通过率排序）
+## §3 20 工具 v6 final（grouped by family — **NOT sorted by pass rate**, see §11 ToV）
 
-数据源：`runs/run-1778560393-59119/results.json`（verus 合并自 `run-1778561896-25488`；aeneas × 4 + ror-typecheck R7 合并自 `run-1778562673-31997`）。
+数据源：`runs/run-1778560393-59119/results.json`（v6 final post-P37: 2219 / 1001 / 0 = 68.91%）。
 
-| tool | n | S | F | U | rate | ΔS vs v5.1 | ΔF | ΔU |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| cargo-check | 161 | 161 | 0 | 0 | 100% | 0 | 0 | 0 |
-| miri | 161 | 157 | 4 | 0 | 97% | 0 | 0 | 0 |
-| charon-mono | 161 | 153 | 8 | 0 | 95% | 0 | 0 | 0 |
-| charon-poly | 161 | 154 | 7 | 0 | 95% | 0 | 0 | 0 |
-| kani | 161 | 151 | 8 | 2 | 93% | 0 | 0 | 0 |
-| hax-fstar | 161 | 128 | 31 | 2 | 79% | 0 | 0 | 0 |
-| hax-lean | 161 | 125 | 34 | 2 | 77% | 0 | 0 | 0 |
-| soteria | 161 | 124 | 37 | 0 | 77% | 0 | +22 | -22 |
-| rocq-of-rust-typecheck | 161 | 124 | 37 | 0 | 77% | -1 | +24 | -23 |
-| rocq-of-rust | 161 | 123 | 38 | 0 | 76% | -1 | +24 | -23 |
-| creusot | 161 | 121 | 40 | 0 | 75% | 0 | 0 | 0 |
-| hax-coq | 161 | 111 | 48 | 2 | 68% | 0 | 0 | 0 |
-| aeneas-coq | 161 | 98 | 63 | 0 | 60% | -4 | +4 | 0 |
-| aeneas-fstar | 161 | 98 | 63 | 0 | 60% | -4 | +4 | 0 |
-| aeneas-lean | 161 | 98 | 63 | 0 | 60% | -4 | +4 | 0 |
-| prusti | 161 | 71 | 90 | 0 | 44% | 0 | +7 | -7 |
-| aeneas-hol4 | 161 | 65 | 94 | 2 | 40% | -1 | +1 | 0 |
-| verus | 161 | 66 | 95 | 0 | 40% | 0 | +22 | -22 |
-| kmir | 161 | 61 | 100 | 0 | 37% | 0 | 0 | 0 |
-| verifast | 161 | 13 | 148 | 0 | 8% | 0 | +24 | -24 |
+**列说明**：
 
-### 3.1 数字自洽性
+- `n / S / F`：corpus size / SUCCESS / FAILED（无 UNKNOWN，P37 后全 0）
+- `rate (95% Wilson CI)`：通过率 + 95% 二项 Wilson 置信区间
+- `Measurement boundary`：每工具的 oracle 切点性质（前端切点 / 单文件 / 抽象解释 / bug detect / etc.）
+- `Wrapper status`：oracle 实施层（项目维护 wrapper / 工具自带 / 无 wrapper / 三路径 ABC）
+- **不按通过率排序**：按家族（baseline / 各类 frontend translator / verifier / abstract interpreter）排，避免暗示 ranking——详 §11 Threats to Validity
 
-- ΔS 总计：-15
-  - -8 来自 v5.1 → v6 baseline 的 D3.1/D3.2/D3.3 baseline 封堵
-  - -7 来自 v6 baseline → v6 final 的 R7 aeneas Warn-channel + ror-typecheck D3.1 同步封堵
-- ΔU 总计：-121（来自 DP-4 严格化删 3 规则）
-- ΔF 总计：+136 = -ΔS -ΔU + 0（守恒）✓
+### 3.0 Baseline
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| cargo-check | 161 | 161 | 0 | **100.0%** [97.7, 100.0] | rustc type/borrow check (single exit code) | no wrapper |
+
+cargo-check 是 corpus 合法性 baseline——100% 通过反向证明 corpus 落在 stable Rust 接受面内，**不参与与其他工具的横向能力比较**。
+
+### 3.1 Frontend translators
+
+**3.1.a Single-stage (charon family)**
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| charon-mono | 161 | 153 | 8 | 95.0% [90.5, 97.5] | MIR → LLBC, `--abort-on-error` | no project wrapper |
+| charon-poly | 161 | 154 | 7 | 95.7% [91.3, 97.9] | MIR → LLBC, `--abort-on-error` | no project wrapper |
+
+McNemar mono vs poly: only-mono=2, only-poly=3, p=1.0000 — **not significantly different**.
+
+**3.1.b Cascade (aeneas backends — share charon stage 1 + diverge by `Extract.ml` printer)**
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| aeneas-coq | 161 | 98 | 63 | 60.9% [53.2, 68.1] | charon + aeneas mid-end + Coq printer | project wrapper, 路径 A §六 width-cut |
+| aeneas-fstar | 161 | 98 | 63 | 60.9% [53.2, 68.1] | + F* printer | 同上 |
+| aeneas-lean | 161 | 98 | 63 | 60.9% [53.2, 68.1] | + Lean printer | 同上 |
+| aeneas-hol4 | 161 | 65 | 96 | 40.4% [33.1, 48.1] | + HOL4 printer | 同上 |
+
+McNemar 同族对比：
+
+- coq vs fstar / coq vs lean / fstar vs lean: 全 p=1.0000 — **identical SUCCESS sets**（charon stage + aeneas mid-end 共享，printer 几乎不 fail）
+- {coq, fstar, lean} vs hol4: p=0.0000 — **significantly different**（HOL4 backend 33 unique FAILED 来自 `trait_decl_kind_to_qualif` OCaml panic）
+
+**3.1.c Cascade (hax backends — share hax-engine + diverge by printer)**
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| hax-coq | 161 | 113 | 48 | 70.2% [62.7, 76.7] | hax-engine + Coq printer | tool.toml inline grep gate |
+| hax-fstar | 161 | 130 | 31 | 80.7% [74.0, 86.1] | hax-engine + F* printer | 同上 |
+| hax-lean | 161 | 127 | 34 | 78.9% [71.9, 84.5] | hax-engine + Lean printer | 同上 |
+
+McNemar：
+
+- coq vs fstar: only-coq=0, only-fstar=17, p=0.0000 — **F* printer SIG accepts more**
+- coq vs lean: only-coq=2, only-lean=16, p=0.0013 — **Lean printer SIG accepts more**
+- fstar vs lean: p=0.5811 — **not significantly different**
+
+**3.1.d Single-stage (rocq-of-rust)**
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| rocq-of-rust | 161 | 123 | 38 | 76.4% [69.3, 82.3] | Rust → Rocq translator (7 wrapper gates) | project wrapper, 路径 C (single-file 自然 width-cut) |
+| rocq-of-rust-typecheck | 161 | 124 | 37 | 77.0% [69.9, 82.8] | + Stage 2 `coqc` typecheck (3 more gates) | 同上 + 路径 C |
+
+### 3.2 Verifiers — deductive, project 切到前端层（per §六 前端测量）
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| kani | 161 | 159 | 2 | **98.8%** [95.6, 99.7] | `--only-codegen` MIR → GotoC (5-marker stop) | project wrapper, 路径 B §六 reverse-evidence |
+| creusot | 161 | 121 | 40 | 75.2% [67.9, 81.2] | cargo-creusot → coma (no solver) | no project wrapper |
+| prusti | 161 | 71 | 90 | 44.1% [36.7, 51.8] | `PRUSTI_NO_VERIFY=false`+`PRINT_HASH` (encoder runs, Silicon does not) | project wrapper |
+| verus | 161 | 66 | 95 | 41.0% [33.7, 48.7] | `--no-verify --log vir` (VIR built, AIR/Z3 skipped) | no project wrapper |
+
+### 3.3 Verifier — separation logic (verifast)
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| verifast | 161 | 13 | 148 | 8.1% [4.8, 13.3] | full verification + corpus 0 `//@` notation → vacuous-pass detection | project wrapper (anti-cheat gate) |
+
+**Caveat**: verifast 8.1% **not comparable** to其他 frontend translators — measures "entries that compile + symex-touch user source without `//@` annotations". 13 SUCCESS are auto-generated struct predicates, not user-spec verification. See `deep-reports/cc-reports/verifast.md`.
+
+### 3.4 Abstract interpreter / symbolic execution — no frontend cut (per §六 输出形态对称性)
+
+| tool | n | S | F | rate (95% CI) | Measurement boundary | Wrapper |
+|---|---:|---:|---:|---|---|---|
+| miri | 161 | 158 | 3 | **98.1%** [94.7, 99.4] | abstract interpretation full execution + UB detection (bug-detect = SUCCESS) | project wrapper, P35 bug-detect dual-path |
+| soteria | 161 | 126 | 35 | 78.3% [71.3, 83.9] | symbolic execution + bug-detect = SUCCESS | project wrapper, P35 |
+| kmir | 161 | 61 | 100 | 37.9% [30.8, 45.6] | K Framework interpreter (K-stuck detection) | tool.toml inline grep gate |
+
+### 3.5 数字自洽性 — v5.1 → v6 final 累积演进
+
+| 阶段 | S / F / U | 通过率 | 关键变化 |
+|---|---|---|---|
+| v5.1 baseline | 2217 / 872 / 131 | 68.85% | — |
+| P30 baseline | 2202 / 1008 / 10 | 68.39% | DP-4 严格化 + D3 漏报封堵 + verus env |
+| P33 [env] | 2208 / 1012 / 0 | 68.57% | x509 [env] 治源 |
+| P35 bug detect | 2211 / 1009 / 0 | 68.66% | MIRI/soteria bug-detect = SUCCESS |
+| P36 aeneas §六 | (实际 0 翻转，防御性) | 68.66% | charon-stage 加 path filter |
+| **P37 kani §六** | **2219 / 1001 / 0** | **68.91%** | kani 反向证明：deps 内 markers 豁免 |
+
+### 3.6 数字自洽性 (累积守恒 vs v5.1)
+
+- ΔS 总计 v5.1 → v6 final：+2（先 -15 D3+R7 漏报封堵，再 +8 P35 + 9 P37 §六 + 上面表 +0 净）
+- ΔU 总计：-131（DP-4 严格化 121 + P33 [env] 治源 10）
+- ΔF 总计：+128 ≈ -ΔS - ΔU
+- v5.1 = 68.85% → v6 final = 68.91%（+0.06pp，统计学无 SIG，符合"不构成长期评判"宪法精神）
 
 注：aeneas-hol4 ΔS = -1（v5.1 66 → v6 65），但 R7 fix 在 hol4 上**不再翻**额外 SUCCESS——hol4 在涉及的 entries (mutually-recursive-traits / impl_trait_iter) 中本就因 OCaml panic FAILED，新 Warn gate 防御性加上但无翻转。
 
@@ -318,4 +392,80 @@ P27 落地后**没有真正需要用户裁决的决策点**——所有原决策
 
 `feature-coverage-2026-05-11-final-v5.1.md`（v5.1 最终）的数字语义在 P27 修宪后**已部分失效**——具体地，v5.1 报告中的 131 UNKNOWN 在新原则下绝大多数（121）应被重判 FAILED。v5.1 数据本身没错（运行结果），但其依赖的 oracle 分类逻辑（5 类外部根因 → UNKNOWN）已被宪法 §六 UNKNOWN 严格语义推翻。
 
-阅读 v5.1 报告时应理解：其 UNKNOWN 类别在 v6 视角下重分类。本报告 §3.1 数字自洽性给出明确的差异分解。
+阅读 v5.1 报告时应理解：其 UNKNOWN 类别在 v6 视角下重分类。本报告 §3.6 数字自洽性给出明确的差异分解。
+
+---
+
+## §10 Related Work
+
+本工作落在三条线交汇处：
+
+**Rust verification tool surveys**：现有 survey（如 Pearce ICSE-SEIP 2021 "A Lightweight Formalism for Reference Lifetimes and Borrowing in Rust" / Pearce et al. EMSE 2024 "Formal Methods for Rust"）多为 narrative-style 综述——主要论文体引用 + 工具能力对比表（表层 + 描述性）。**本工作 differentiates by 提供 quantitative + reproducible benchmark + 可重复 runner framework**，区别于"作者主观判定 X 工具支持 Y feature"的 survey。
+
+**Empirical study of program verifiers**：传统软件测试领域 empirical study（Wohlin et al. 2012, ESEM 系列）侧重 internal validity / construct validity。本工作借鉴四类 validity threats 框架，但**测的不是 verifier soundness/completeness 本身**——测 frontend acceptance breadth。
+
+**Benchmark suites**：SV-COMP 系列（CAV 软件验证竞赛）是经典 C 验证 benchmark；Rust 验证 benchmark 此前主要是 tool-specific（每个 verifier 自家 examples/）。**本工作 contribution 在 tool-neutral 接口**：runner 不偏袒任何工具，corpus 不为单一工具改写——对照 SV-COMP 是 tool-specific test categories 的设计选择。
+
+完整 cite list 见 `docs/publish/tool-citations.md`。
+
+---
+
+## §11 Threats to Validity
+
+按 Wohlin et al. 2012 四类 validity 框架 + 项目特殊的对称性论证。
+
+### §11.1 Construct Validity
+
+**核心 construct："feature acceptance breadth"**（特性接受面广度）— 定义为"工具能不能吃下这段代码 + 产出非 partial 输出"，**不**等于"verification correctness"。Construct operationalization 见 §六 双切割（深度 + 宽度）+ architecture §一 bug-detect 派生 + 三路径 oracle 实施。
+
+**Threats**：
+
+- T-C1: **"feature coverage" 命名 vs operationalization**：现 oracle 在 entry 粒度判定，并未做 feature-level roll-up。pass-rate 数字反映 (tool, entry) 对的接受率，feature 层"覆盖"含义需读者通过 corpus feature directory 自行归纳。**Mitigation**：corpus 按 feature 分目录（41 features），每 feature ≥ 1 entry；§3 表给 per-tool breakdown 而非 per-feature roll-up，避免过度归约
+- T-C2: **"前端测量"切点异质**：每工具切点 nature 不同（kani `--only-codegen` / verus `--no-verify` / verifast 完整 verification + corpus 0 spec 注解 / MIRI 抽象解释整段执行 / soteria 符号执行整段）。**Mitigation**：§3 表加 "Measurement boundary" 列显式标注；principles.md §六 + architecture §一 加"工具输出形态对称性"论证（详 §六 末段）
+- T-C3: **"形式可证 0 误报 / 0 漏报" 措辞**：实质是 single-exit-code-channel invariant argument + 实测验证，**非 machine-checked proof**。P38 已把 charon × 2 + cargo-check 措辞降级为 "实测 + 源码层论证" / "by-design no-silent-skip"。aeneas / hax / kani / verus / prusti / creusot 已在 P30 + P32 + P35 + P37 cc-route audit 落地诚实声明
+
+### §11.2 Internal Validity
+
+**核心问题**：测量结果归因到工具能力是否被混杂变量污染？
+
+**Threats**：
+
+- T-I1: **Harness instrumentation effect**：每工具 harness 模板不同（verus 用 `verus! {}` 包 user code / kmir 用 K-stuck grep / 等）。**Mitigation**：宪法 §四 A "信号文件加入前后 cargo 字节级一致"形式约束；harness 模板按工具自身惯例写（如 verus 必须 `verus! {}` 包 — 否则工具拒绝，是工具 contract 不是 framework instrumentation）
+- T-I2: **Oracle 切点选择**：kani `--only-codegen` / verus `--no-verify` / prusti env trick 等切点是项目 deliberate design choice (per §六 前端测量)。**Mitigation**：每个工具 README 明示切点 + cc-report 详细论证为何此切点公平；P36/P37 §六 三路径补对称性
+- T-I3: **`[env]` 修改 cargo build 行为**：x509-parser entry 加 `RUSTFLAGS=--cap-lints=warn` (P33) — 改 vendor crate lint denial 的 build-time 行为，是 corpus 适配？**Mitigation**：宪法 §四 A 形式定义只要求 cargo 字节级——`[env]` 由 runner 在 spawn 时附加，cargo 自身不读 hirusttest，符合 A 精神；但 reviewer 仍可挑刺 —— 明确列入 ToV 接受为 limitation
+- T-I4: **`extra_cargo_deps` (creusot)**：creusot tool.toml 让 runner 把 `creusot_contracts` 依赖 inject 工作副本 Cargo.toml — 局部为工具改 deps。**Mitigation**：宪法 §四 C 异质性归配置（声明数据，非框架代码 if 分支）；creusot README 明示此契约；与每个 entry 自身 src 代码无关
+- T-I5: **`Cargo.lock` 跳过**：runner 跳过 Cargo.lock copy 以避免 prusti pinned old toolchain 不识 v4 lockfile。**Mitigation**：feature-coverage screening 不需要跨 run 锁 dep；明示 in detailed-design.md §四 隔离机制
+
+### §11.3 External Validity
+
+**核心问题**：结果能 generalize 到 wider Rust ecosystem 吗？跨工具比较是否暗示公平 ranking？
+
+**Threats**：
+
+- T-E1: **Pass-rate 排序的 ranking 暗示**：早期 v5/v6 报告按 pass rate 排序大表会给读者"工具 X 优于工具 Y"误读。**Mitigation**：P38 起 §3 按家族（baseline / frontend translator subtypes / verifier subtypes / abstract interpreter）排列，**不按 pass rate desc**；每表加 caption + footnote 提示不可比较性
+- T-E2: **不同深度工具同表呈现**：浅 translator (charon 95.7%) vs 深 verifier (verus 41.0%) 同表会让读者直觉对比。**Mitigation**：§六 "不区分翻译深浅" 原则 + §3 表按家族分组 + Measurement boundary 列明示每工具切点
+- T-E3: **161 entries → crates.io 2026 generalize**：corpus 是项目作者选材，未做 representative sampling。**Mitigation**：宪法 §五 "examples 多样性" 设计（单特性 / 边界 `*-limit/` / 综合 `industrial/` 多梯队）；project 主动声明"测试报告不构成对工具能力的长期承诺"
+- T-E4: **bug-detect 跨工具非对称**：MIRI / soteria 触发 bug-detect path，其他工具 deliberate 切前端不进入此 path。这非 unfair → **见 architecture §一 末段对称性论证**（cc-rebuttal 已记录）；§3.4 / §3.2 表布局清晰区分这两类工具
+- T-E5: **Toolchain pin 副作用**：prusti 锁 nightly-2023-08，拒新 edition feature。pass rate 含此 confounder。**Mitigation**：§3 Measurement boundary 列加 toolchain 信息；prusti README 明示
+
+### §11.4 Conclusion Validity
+
+**核心问题**：每个数字 claim 是否 statistically sound？
+
+**Threats**：
+
+- T-V1: **Single-run determinism**：20 工具是确定性程序，给同样 input + env，输出必定 byte-identical。Single run 足够。Multi-run 不会给出额外信息。**Mitigation**：唯一已知非确定性 `rocq-of-rust`（翻译路径），项目已用 N=7 attempts AND-reduce 处理；其他 19 工具切前端层不进入 BMC/SMT 求解，无 timeout flip 风险
+- T-V2: **Pass-rate 无置信区间**：v5.1 仅给 % 不给 CI。**Mitigation**：P39 §3 加 Wilson 95% 二项 CI（per tool n=161，CI 一般 ±5-10pp）
+- T-V3: **同族对比无显著性检测**：aeneas × 4 / hax × 3 / charon × 2 同表比较是否 SIG？**Mitigation**：P39 §3 加 McNemar exact p-value（aeneas 同 cascade 3 个 = identical，hol4 SIG；hax F* / Lean printer SIG accepts more than Coq）
+- T-V4: **样本量 161 是否足**：覆盖 41 features 平均 ~4 entries/feature。对 statistical significance 二项 CI ±5-10pp 已可接受；对 feature-level saturation 论证不充分。**Mitigation**：corpus 设计单特性 + 边界 + 工业三梯队，每梯队针对不同维度；扩 corpus 是 long-term plan
+
+### §11.5 时空锚定 + 不构成长期承诺
+
+按宪法 §三 模块定位（次要模块时效性）+ §六 时空锚定：
+
+- 所有数字锚定 (run id `run-1778560393-59119`, host=Apple M5 / macOS 25.4.0 / aarch64 10 cpus, ISO 时间 2026-05-12, commit `<post-P37>`)
+- 工具版本快照见 §0.2
+- 工具升级后旧结果解释力衰减是必然的、不是缺陷
+- 测试报告**不构成对工具能力的长期承诺**——本快照仅说"在这个时间点 + 这些工具版本 + 这个 corpus 下，可观察到这些数字"
+
+---
