@@ -32,6 +32,7 @@ docs/design/
 ├── architecture.md    ← 在宪法约束下的核心架构设计；index 入口
 └── detailed-design.md ← 函数级细化、schema、配置示例
 docs/publish/
+├── tutorial.md           ← 【新手必读】手动跑 + 读结果（4 个实跑 demo + 解读）
 ├── publish-readiness.md  ← 学术发表 audit 方法学 + 当前 readiness checklist + re-audit triggers (质量保证 L4 层)
 ├── paper.md              ← ISSTA-style paper draft (中文)
 ├── glossary.md           ← 项目自创术语 → 学术 register 对照
