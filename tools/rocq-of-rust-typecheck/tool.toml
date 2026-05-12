@@ -25,10 +25,12 @@
 # Env contract (TS_* names sourced from .env; runner expands ${TS_...} and
 # strips TS_ before spawn — we re-export under non-TS names so the
 # wrapper script sees them):
-#   TS_ROCQ_OF_RUST_BIN                 — rocq-of-rust binary path (cargo install)
 #   TS_ROCQ_OF_RUST_TOOLCHAIN_SYSROOT   — nightly-2024-12-07 sysroot (shared with tools/rocq-of-rust)
 #   TS_ROR_TYPECHECK_SWITCH             — opam switch name (default "ror-test")
 #   TS_ROR_RUNTIME_PATH                 — abspath to RocqOfRust runtime dir
+#
+# rocq-of-rust binary itself is resolved via PATH inside the toolchain sysroot
+# bin/ — no dedicated TS_ROCQ_OF_RUST_BIN env var consumed.
 #
 # entry_mode defaults to "bin" (matches tools/rocq-of-rust). The harness is
 # rendered to src/bin/__ts_harness.rs but is irrelevant — rocq-of-rust only

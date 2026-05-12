@@ -20,7 +20,7 @@
 
 **对策**（自上而下三条次序）：
 
-1. **本地性 / 当前性**（最高）：测当下这个工具版本 + 它所要求的 toolchain 能做什么。装对其要求的 toolchain 后仍不行 → 工具菜，FAILED 站得住
+1. **本地性 / 当前性**（最高）：测当下这个工具版本 + 它所要求的 toolchain 能做什么。装对其要求的 toolchain 后仍不行 → 工具触达其能力边界（capability boundary reached），FAILED 站得住
 2. **遵循社区惯例**：在本地性之下，用工具开发者文档化 / 推荐 / 默认的用法；不钻牛角尖、不测预期外姿势
 3. **最大善意**：在能做的姿势内尽力配合（装其要求 toolchain、按其文档姿势用工具、测其用户实际遇到的特性）
 
@@ -108,6 +108,8 @@ B 的等距推论：测"接受 vs 不接受"，不区分翻译深浅（浅 synta
 ### 前端测量（深度切割）
 
 工具能力的测量限于工具自身前端（如 parser / 类型检查 / 翻译 / 模型构造等），求解层不计入。测必须命中工具自身前端，而非 rustc 等代理前端——否则 SUCCESS 信号退化为"rustc parses it"，丢失工具间分化。
+
+**工具输出形态对称性**：不同工具的"前端" nature 不同——verifier-style 工具（kani / verus / prusti / creusot 等）有"前端 vs 求解层"二分切点，被项目设计成跑前端层；但 abstract interpreter（MIRI）和 symbolic execution 工具（soteria）**没有这种切点**，它们的"前端"就是完整执行（abstract interpretation / 符号执行）一次走完。这类工具的有效输出形态包括：(a) 完整执行无 issue，(b) 完整执行 + 自陈检测出代码 bug——按 §四 B "测必要条件 / 非语义对错"两者都算 SUCCESS（detail 见 `architecture.md` §一 "bug detect 归 SUCCESS"）。这不是给 MIRI/soteria "额外 reward"，而是每个工具按它能给出的输出形态平等评 SUCCESS——对称。
 
 ### 当前 crate 焦点（宽度切割）
 

@@ -2,6 +2,8 @@
 name = "runner"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Feature-coverage screening runner for Rust verification tools"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

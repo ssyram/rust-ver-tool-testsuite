@@ -100,6 +100,15 @@ P37 实测影响：kani 通过率 93.8% → **98.8%**（10 FAILED 中 8 case 是
 
 这条派生与 §六 UNKNOWN 严格语义、§四 A 不可侵入、§六 当前 crate 焦点都不冲突，是 §四 B 在 v6 corpus 上的具体投影。soteria README 历史注释"按完整完成精神 bug detect = FAILED"（v3 时代立场）与 §四 B 实际冲突，已删除。
 
+**对称性论证（防 reviewer 误读）**：bug detect = SUCCESS 给 MIRI / soteria 不是"额外 reward"或"对 verifier-style 工具不公平"。原因：
+
+- **MIRI 是 abstract interpreter** —— 它的工作 nature 就是把 Rust 当解释执行的代码完整跑一遍，**没有"前端 vs 求解层"切点可切**。给一段代码 → 跑完无 issue ∨ 跑完 + 检测 UB 都是它按设计意图工作。**bug-detect 不是它的"额外能力"，是它的有效输出形态之一**。
+- **soteria 是 symbolic execution** —— 同理，符号执行整段走完是其本性。
+- **verifier-style 工具（kani / verus / prusti / creusot）**按宪法 §六 前端测量 deliberate 切到前端层（`--only-codegen` / `--no-verify` / `PRUSTI_NO_VERIFY=false+PRINT_HASH` / 等）—— **它们本来就不在 bug-detect 路径**，不是被歧视，是项目主动让它们停在更前面，避免 BMC/SMT 求解时间和资源消耗。
+- **verifast** 跑完整 verification 但需要用户 spec 注解；本 corpus 0 个 entry 有 `//@` 注解，verifast 不进入真 verification 路径——所以也不进入 bug-detect 路径。
+
+每个工具按它能给出的有效输出形态评 SUCCESS，**对称**。这条对称性在 principles.md §六 "工具输出形态对称性" 也有声明。
+
 ---
 
 ## 二、通用性论证

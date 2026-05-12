@@ -6,6 +6,20 @@ Rust 验证工具的**特性覆盖广度**筛选测绘框架。
 - 一个工具 = `tools/<name>/{tool.toml + harness.rs.tera}`（必要时含 wrapper.sh）。
 - 矩阵 = 工具 × 入口。runner 不判 pass/fail——只记 exit code（SUCCESS / FAILED / UNKNOWN）+ 原始 stdout/stderr，由人解读。
 
+**License**：Dual-licensed under Apache-2.0 OR MIT，详 [`LICENSE`](LICENSE)。
+Vendored crates (`vendor/`) 保留各自上游 license。
+
+---
+
+## 初次 clone
+
+```sh
+git clone <repo>
+cd rust-ver-tool-testsuite
+git submodule update --init --recursive   # 必须！industrial/ 部分 entries 依赖 vendor/rsa /sha2 /x509-parser
+cp .env.example .env                       # 按本机实际编辑路径
+```
+
 ---
 
 ## 文档结构（必读，所有工作以此为标准）

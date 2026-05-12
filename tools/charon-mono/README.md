@@ -24,9 +24,11 @@ Charon 是**纯翻译工具**，pipeline 终点就是 LLBC——不调用任何 
 为了严格反映前端特性支持范围（不允许 partial），**SUCCESS = charon exit 0**（含 `--abort-on-error` flag）。任何 partial → FAILED。
 
 - **partial 暴露机制**：`--abort-on-error` 让 charon 内部任何 unsupported 项触发 panic + exit 1。`charon-driver/driver.rs:143` 设 `error_ctx.continue_on_failure = false`，`register_error!` 在第一次错误就 panic
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。charon exit 0 ⇔ 翻译完整无内部错误
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。`--abort-on-error` + `register_error!` panic 路径已封死所有 silent skip
-- **漏报盲点**：无
+- **形式严格性 — 0 误报（不冤枉能力）**：实测 + 源码层论证。charon exit 0 ⇔ 翻译完整无内部错误。论证基于 charon 单一通路 `--abort-on-error` + `register_error!` 实现（非穷举式形式证明）
+- **形式严格性 — 0 漏报（不高估能力）**：实测 + 源码层论证。`--abort-on-error` + `register_error!` panic 路径覆盖已知 silent-skip 路径
+- **漏报盲点**：
+  - 上游 charon 引入新 `register_error!` 之外的失败路径理论可能（实测在 v6 corpus 0 现象）
+  - 按宪法 §六 当前 crate 焦点：外部依赖 (std/core/vendor crate) 被翻成 `opaque type` 占位是 charon 合法翻译选择，不属 partial（详见 docs/test-reports/feature-coverage-2026-05-12-v6.md §3 关于 charon 95% 通过率的 §六 解释）
 
 ## 安装
 

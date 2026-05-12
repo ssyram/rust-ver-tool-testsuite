@@ -21,9 +21,11 @@ cargo-check **没有后端**：rustc 跑完整前端（parse + macro expand + na
 为了严格反映前端特性支持范围，**SUCCESS = `cargo check` exit 0**（rustc 类型 / 借用检查通过）。任何错误项 → FAILED。
 
 - **partial 暴露机制**：rustc 自身的 error registry——任何错误 exit ≠ 0
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。rustc 单一信号，exit 0 ⇔ type / borrow check 全部通过
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。任何 check 失败 → rustc exit ≠ 0
-- **漏报盲点**：无
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ by-design no-silent-skip。rustc 单一 exit-code 信号通路；exit 0 ⇔ type / borrow check 全部通过（rustc 设计意图，非项目层形式证明）
+- **形式严格性 — 0 漏报（不高估能力）**：✅ by-design no-silent-skip。任何 check 失败 → rustc exit ≠ 0（rustc 不存在 silent skip 设计模式）
+- **漏报盲点**：
+  - 边界情况理论可能：rustc 内部 bug 让某种 unsafe code 漏过 check（极罕见，未在 v6 corpus 命中）
+  - cargo-check 不做 verifier-style 验证，"通过" = "rustc 接受"，不蕴含 "代码正确"——baseline 角色而非工具评估对象
 
 ## 安装
 
