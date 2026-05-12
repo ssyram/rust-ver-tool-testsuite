@@ -4,7 +4,7 @@
 
 ---
 
-## 一、文档中心：`docs/design/` 是一切的根本
+## 一、文档中心：`docs/design/` 是一切的根本 + `docs/publish/` 是 publish-readiness 层
 
 **所有工作以 [`docs/design/`](docs/design/) 为中心**：
 
@@ -13,7 +13,18 @@ docs/design/
 ├── principles.md       ← 【绝对宪法】未经允许不可篡改；所有讨论与争议以此为准
 ├── architecture.md     ← 在宪法约束下的核心架构；不违反宪法时为设计核心
 └── detailed-design.md  ← 函数级细化
+docs/publish/
+└── publish-readiness.md ← 【质量保证 L4 层】学术发表 audit 方法学 + checklist + re-audit triggers
 ```
+
+**质量保证四层（详 `docs/publish/publish-readiness.md` §7）**：
+
+- L1：`docs/design/` + `runner/` + `tools/` — 宪法 / 架构 / 实施
+- L2：`deep-reports/cc-reports/` — per-tool 实测 audit
+- L3：`docs/audit/v6-law-*` — 法律层 audit（宪法 → 实施一致性）
+- L4：`docs/publish/publish-readiness.md` — publish-readiness audit（venue / 外部观察者标准）
+
+每层按宪法 §八 c+cc disprove-first 协议跑。任何 publish 准备工作前先查 L4 checklist。
 
 ### 1.1 `principles.md` 是绝对宪法
 

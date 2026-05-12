@@ -31,7 +31,21 @@ docs/design/
 ├── principles.md      ← 【宪法】绝对精神，未经显式讨论不可篡改；所有下游 100% 满足
 ├── architecture.md    ← 在宪法约束下的核心架构设计；index 入口
 └── detailed-design.md ← 函数级细化、schema、配置示例
+docs/publish/
+├── publish-readiness.md  ← 学术发表 audit 方法学 + 当前 readiness checklist + re-audit triggers (质量保证 L4 层)
+├── paper.md              ← ISSTA-style paper draft (中文)
+├── glossary.md           ← 项目自创术语 → 学术 register 对照
+└── tool-citations.md     ← 20 工具上游论文引用
 ```
+
+**质量保证四层** (详 `docs/publish/publish-readiness.md` §7)：
+
+- L1 宪法 / 架构 / 实施 (`docs/design/` + `runner/` + `tools/`)
+- L2 per-tool 实测 audit (`deep-reports/cc-reports/`)
+- L3 法律层 audit (`docs/audit/v6-law-*`)
+- L4 publish-readiness audit (`docs/publish/publish-readiness.md`)
+
+每层按宪法 §八 c+cc disprove-first 协议跑。
 
 **`principles.md` 是项目宪法**——根本问题意识、项目目标、模块定位与优先级、三大派生原则、宪法级硬指标、外围原则。任何讨论与争议以此文为准。
 
