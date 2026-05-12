@@ -105,9 +105,19 @@ B 的等距推论：测"接受 vs 不接受"，不区分翻译深浅（浅 synta
 - **不藏**：已知漏报盲点必须文档化
 - **UNKNOWN 严格语义**：UNKNOWN 只在两类场景使用——(a) 全局工具链崩溃（重装可修），(b) 我们这边可识别的问题且暂未修（如我们 harness 模板 bug / 我们 corpus 引入的 vendored crate lint / 我们环境损坏）。每类必附明确归因 + 会修计划。**工具自身能力边界**（包括但不限于：官方 wrapper 失败 / 工具自选 toolchain 不支持新特性 / 工具单文件 pipeline 不读 Cargo.toml / 官方 wrapper 不传 --edition）一律 FAILED——按"本地性原则"FAILED 站得住，工具开发者不能驳回
 
-### 前端测量
+### 前端测量（深度切割）
 
 工具能力的测量限于工具自身前端（如 parser / 类型检查 / 翻译 / 模型构造等），求解层不计入。测必须命中工具自身前端，而非 rustc 等代理前端——否则 SUCCESS 信号退化为"rustc parses it"，丢失工具间分化。
+
+### 当前 crate 焦点（宽度切割）
+
+测量对象是 example 的 entry crate（runner 注入的 `TS_TARGET_CRATE` / `TS_ENTRY_FN` 锚点指向的）。工具如何处理外部依赖（std / core / 第三方）不计入测量——把外部依赖翻译为 opaque / placeholder / stub 是工具合法的设计选择，不算 silent partial。
+
+- entry crate 自己的 fn / type / trait 在工具产物里完整出现 → 按工具具体形式指标判定 SUCCESS / FAILED
+- entry crate 的 item 被 silently opaque / skip / stub → silent partial → FAILED
+- 外部依赖路径下的 opaque / skip / stub → 不触发 partial 判定
+
+oracle 实施层已遵循：rocq-of-rust gate 6 grep `^Definition <TS_ENTRY_FN>` 锚 entry；Tera 模板变量只取 `target_crate_name` + `entry_fn`；runner 注入 `TS_TARGET_CRATE` + `TS_ENTRY_FN` 给 wrapper 用。本条把已有实施沉淀为可援引的精神。
 
 ---
 
