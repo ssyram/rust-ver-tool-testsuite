@@ -1,6 +1,6 @@
 # charter-craft.md 自指审视（用 §1.5 + §1.6 反审自身）
 
-> 审视对象：`/Users/ssyram/workspace/ai-tools/prompts/current/charter-craft.md`（478 行，截至 2026-05-11 18:42 版本）
+> 审视对象：`${HOME}/workspace/ai-tools/prompts/current/charter-craft.md`（478 行，截至 2026-05-11 18:42 版本）
 > 审视者标准：charter-craft §1.5（奥卡姆 + 双层清晰）+ §1.6（5 条书写原则）
 > 审视模式：诚实，不为"通过"而袒护；发现 self-violation 必明示
 

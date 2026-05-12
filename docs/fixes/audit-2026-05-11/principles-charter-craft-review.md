@@ -3,7 +3,7 @@
 > 审查者：Claude (Opus 4.7 / 1M context)
 > 审查日期：2026-05-11
 > 审查对象：`docs/design/principles.md`（319 行，P11 治理 + D3 减法修宪后状态）
-> 审视标准：`/Users/ssyram/workspace/ai-tools/prompts/current/charter-craft.md`
+> 审视标准：`${HOME}/workspace/ai-tools/prompts/current/charter-craft.md`
 > **审视不实施**——产出审视报告 + 推荐操作。
 
 ---

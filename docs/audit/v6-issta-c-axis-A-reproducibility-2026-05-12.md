@@ -42,8 +42,8 @@
   - 后果：ACM Functional 要求"complete install instructions"。"自行参考上游"是反 reproducibility 的——上游文档/路径随时可漂，commit pin 在上游 README 找不到本地配置语境。审查 reviewer 无法在 4 小时内装齐 20 个工具中的任一难装项（prusti / kmir / soteria 至少需要 OCaml opam switch / K Framework / Rosetta + 老 toolchain 组合）。
   - 修复：每个工具 README 末加可执行 "Install Recipe"（具体命令 + commit hash + 已知 platform 限制），即便会随时间过期——这是 reproducibility 的核心义务，不是过期成本的借口。
 
-- **[Major] baseline run 的 `results.json` `tools[].command` 内嵌绝对路径 `/Users/ssyram/...` + `/tmp/ts-tools-install/...`**
-  - 证据：`runs/run-1778560393-59119/results.json` 多处 `"/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/tools/..."` 与 `/tmp/ts-tools-install/charon/bin/charon` 与 `/Users/ssyram/.opam/default/bin/hax-engine` 等。
+- **[Major] baseline run 的 `results.json` `tools[].command` 内嵌绝对路径 `${HOME}/...` + `/tmp/ts-tools-install/...`**
+  - 证据：`runs/run-1778560393-59119/results.json` 多处 `"${TS_PROJECT_ROOT}/tools/..."` 与 `/tmp/ts-tools-install/charon/bin/charon` 与 `${OPAM_DEFAULT_PREFIX}/bin/hax-engine` 等。
   - 后果：他人无法直接比对 command 数组、也无法在没有这些路径的机器上"重放"该 run。command 字段本应是机读重放语义但内嵌私 host 路径，纯纪念性。
   - 修复：在 `results.json` 落盘前做 path normalize（替换为 `${TS_PROJECT_ROOT}` / `${TS_CHARON_BIN}` 等 placeholder）；或额外存原始 `tool.toml` 内容（含 placeholder）+ `expanded_command`（含本机绝对路径）双字段。
 

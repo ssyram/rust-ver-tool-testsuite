@@ -28,7 +28,7 @@
 ### 1.2 host 与 host 一致性
 
 ```
-hostname:     ssyramdeMacBook-Air.local
+hostname:     host
 os/arch:      macos / aarch64 (kernel 25.4.0)
 cpu_brand:    Apple M5
 total_mem:    24576 MB

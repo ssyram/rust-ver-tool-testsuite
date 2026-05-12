@@ -397,7 +397,7 @@ Total: 260 succeeded / 41 failed / 0 unknown / 301 total
 - **started**:  `2026-05-07T03:54:21Z`
 - **finished**: `2026-05-07T04:02:11Z`
 - **duration**: 470 s wall
-- **host**:     `ssyramdeMacBook-Air.local` (macos / aarch64 25.4.0, Apple M5)
+- **host**:     `host` (macos / aarch64 25.4.0, Apple M5)
 - **memory / cores**: 24576 MB / 10 cpus (parallelism = 10)
 
 ### Tool versions

@@ -196,9 +196,62 @@ e727b27 P41: artifact 实际 readiness 修订 — 强措辞同步 + private path
 
 - [ ] paper.md 翻译英文 — ❌ **TODO 1-2 天**
 - [ ] paper LaTeX (按 venue template) — ❌ **TODO**
-- [ ] 匿名化 commit history（去 ssyram user info）— ❌ **TODO 半小时**
+- [ ] 匿名化 commit history（git filter-repo 重写 author 名 + email + 历史 commit body 私路径）— ❌ **TODO 半小时**（详 §3.10）
 - [ ] 选 venue + check deadline / page limit — ❌ **TODO**
 - [ ] artifact 包（含 anonymized v6 final run）一并上 Zenodo — ❌ **TODO**
+
+### §3.10 Anonymization Workflow（投稿前 fork 重写）
+
+当前 main branch tracked files **0 私路径残留**（P41 + P43 anonymized）。但 **commit history** 仍含：
+
+1. **author identity**：`ssyram <liguany126@126.com>` (P27-P43 共 ~17 commits 都用此 identity)
+2. **commit message body** 中的 private path 示例（特别是 P41 commit body 列了 sed 替换前后对照）
+
+Double-blind 投稿前**必须**做 anonymized fork。推荐 `git filter-repo`（比 `git filter-branch` 安全，python 写、上游推荐）：
+
+```bash
+# 1. Clone repo 到独立 directory（防止误改 main）
+git clone --no-local rust-ver-tool-testsuite anon-fork
+cd anon-fork
+
+# 2. 安装 git-filter-repo (pip install git-filter-repo / brew install git-filter-repo)
+
+# 3. 重写 author / committer identity
+git filter-repo \
+  --mailmap <(echo "Anonymous <anon@example.com> ssyram <liguany126@126.com>") \
+  --force
+
+# 4. 重写 commit message body 中的私路径示例
+cat > /tmp/msg-anon.py <<'PY'
+import re, sys
+msg = sys.stdin.buffer.read().decode('utf-8', errors='replace')
+msg = re.sub(r'/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/', '${TS_PROJECT_ROOT}/', msg)
+msg = re.sub(r'/Users/ssyram/\.opam/default/', '${OPAM_DEFAULT_PREFIX}/', msg)
+msg = re.sub(r'/Users/ssyram/\.rustup/toolchains/', '${RUSTUP_TOOLCHAINS}/', msg)
+msg = re.sub(r'/Users/ssyram/\.local/share/ts-tools/', '${TS_TOOLS_BASE}/', msg)
+msg = re.sub(r'/Users/ssyram/\.cargo/', '${CARGO_HOME}/', msg)
+msg = re.sub(r'/Users/ssyram/', '${HOME}/', msg)
+msg = re.sub(r'ssyramdeMacBook[A-Za-z0-9\-.]*', 'host', msg)
+sys.stdout.buffer.write(msg.encode('utf-8'))
+PY
+git filter-repo --message-callback "
+import subprocess
+r = subprocess.run(['python3', '/tmp/msg-anon.py'], input=message, stdout=subprocess.PIPE, check=True)
+return r.stdout
+" --force
+
+# 5. 检查 0 残留
+git log --all --format=%B | grep -E "ssyram|liguany|/Users/" || echo "OK: 0 残留"
+git log --all --format='%an <%ae>' | sort -u  # 应只有 "Anonymous <anon@example.com>"
+
+# 6. Push anonymized fork 到匿名 GitHub repo（如 `submission-2026-isssta`）+ archive 到 Zenodo
+```
+
+**注**：
+
+- 重写 history 会改 commit hash 链——anonymized fork 与 main 不再共享 hash，但内容等价
+- 投稿后 reviewer 评 anonymized fork；camera-ready 时可以用原 main branch 提交（含真实 author identity）
+- 上传 Zenodo 之前 verify anonymized fork 0 私信息残留
 
 ---
 

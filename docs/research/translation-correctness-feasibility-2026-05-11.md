@@ -3,7 +3,7 @@
 > 调研对象：rocq-of-rust / hax-lean / hax-coq 三个 Rust → 证明助手翻译工具
 > 调研目标：判断"翻译产物在对应 prover 里能否 typecheck / evaluate / 与 Rust 一致"的实测可行性
 > 范围：可行性调研，**不**实施新测试框架（不改 tool.toml / runner / cc-report / docs/design/）
-> 工作目录：`/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/`
+> 工作目录：`${TS_PROJECT_ROOT}/`
 > 实测临时目录：`/tmp/translation-feasibility-2026-05-11/`，`/private/tmp/hax/hax-lib/proof-libs/`，`/private/tmp/rocq-of-rust-clone/RocqOfRust/`
 
 ---
@@ -29,15 +29,15 @@
 
 | Prover | 状态 | 版本 | 路径 / 备注 |
 |---|---|---|---|
-| **Lean 4** | 装 | 4.29.1（项目要 4.29.0-rc1，rebuild Hax prelude 后 lake 自动拉 4.29.0-rc1 toolchain） | `/Users/ssyram/.elan/bin/lean` |
-| **lake** | 装 | 5.0.0-src+f72c35b | `/Users/ssyram/.elan/bin/lake` |
-| **elan** | 装 | 4.2.1 | `/Users/ssyram/.elan/bin/elan` |
-| **Coq** | 装（多 switch） | **8.20.1**（在 opam switch `rocq9` / `rocq-vst`；非 active switch） | `/Users/ssyram/.opam/rocq9/bin/coqc` |
+| **Lean 4** | 装 | 4.29.1（项目要 4.29.0-rc1，rebuild Hax prelude 后 lake 自动拉 4.29.0-rc1 toolchain） | `${HOME}/.elan/bin/lean` |
+| **lake** | 装 | 5.0.0-src+f72c35b | `${HOME}/.elan/bin/lake` |
+| **elan** | 装 | 4.2.1 | `${HOME}/.elan/bin/elan` |
+| **Coq** | 装（多 switch） | **8.20.1**（在 opam switch `rocq9` / `rocq-vst`；非 active switch） | `${HOME}/.opam/rocq9/bin/coqc` |
 | **Rocq 9.0+** | **缺** | — | 本机无 Rocq ≥9.0；opam 仓库 `coq-released` 默认是 Coq 8.x |
 | **F\*** | 缺 | — | `which fstar.exe` 无结果（本任务不需要） |
 | opam | 装 | 2.5.0 | active switch = `soteria-install`；用 `opam exec --switch=rocq9` 切换 |
 
-opam switches：`default`、`rocq9`（Coq 8.20.1）、`rocq-vst`（Coq 8.20.1）、`/Users/ssyram/.creusot`、`soteria-install`（active）。
+opam switches：`default`、`rocq9`（Coq 8.20.1）、`rocq-vst`（Coq 8.20.1）、`${HOME}/.creusot`、`soteria-install`（active）。
 
 **已装的额外 Coq lib**（调研中安装）：`coq-record-update 0.3.6`（在 `rocq9` switch；通过新增 `coq-released` opam repo 装的）。
 

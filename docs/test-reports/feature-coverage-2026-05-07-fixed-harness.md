@@ -2,7 +2,7 @@
 
 **run 标识**：`run-1778155001-26161`
 **起止**：2026-05-07T11:56:41Z – 12:19:29Z (UTC)，22m 48s wall
-**Host**：ssyramdeMacBook-Air.local / macos / aarch64 / Apple M5 / 24576 MB / 10 cores
+**Host**：host / macos / aarch64 / Apple M5 / 24576 MB / 10 cores
 **并发**：10
 **原始数据**：`runs/run-1778155001-26161/`（results.json + 每 task raw stderr/stdout）
 

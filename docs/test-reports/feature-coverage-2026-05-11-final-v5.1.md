@@ -17,7 +17,7 @@
 | **v5 baseline** | `run-1778500291-90812` | 2026-05-11T11:51:31Z – 12:23:00Z | 1889 s | R2 / R5 audit 数据源；所有"v5 raw"引用都指此 run |
 | **v5.1 rerun** | `run-1778504159-67797` | 2026-05-11T12:55:59Z – 13:23:08Z | 1629 s | R3 fix 后验证 rerun；本报告核心数字（68.85%）来自此 run |
 
-两 run 同 host（`ssyramdeMacBook-Air.local` / macOS 25.4.0 / Apple M5 aarch64 / 24 GB / 10 cpus / parallelism = 10），同 corpus（161 entries），同工具版本 binary——仅 `runner/src/report.rs` 中 oracle 分类逻辑在两 run 之间有 R3 落地的两条新规则（详 §4.2）。
+两 run 同 host（`host` / macOS 25.4.0 / Apple M5 aarch64 / 24 GB / 10 cpus / parallelism = 10），同 corpus（161 entries），同工具版本 binary——仅 `runner/src/report.rs` 中 oracle 分类逻辑在两 run 之间有 R3 落地的两条新规则（详 §4.2）。
 
 ### 0.2 corpus 与工具版本
 

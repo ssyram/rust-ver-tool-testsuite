@@ -11,7 +11,7 @@ run 标识：`run-1778148197-53283`
 |---|---|
 | 起止 | 2026-05-07T10:03:17Z – 10:22:24Z (UTC) |
 | 总耗时 | 19m 7s wall |
-| Host | ssyramdeMacBook-Air.local / macos / aarch64 / Apple M5 / 24576 MB / 10 cores |
+| Host | host / macos / aarch64 / Apple M5 / 24576 MB / 10 cores |
 | 并发 | 10 |
 | 工具数 | 19 |
 | Entry 数 | 140 |

@@ -4,7 +4,7 @@
 
 > 上游调研：`docs/research/ror-runnable-deep-dive-2026-05-11.md`（认为档 1 可达；档 2/3 不适合 testsuite 自动化）
 > 上层调研：`docs/research/translation-correctness-feasibility-2026-05-11.md`
-> 工作目录：`/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/`
+> 工作目录：`${TS_PROJECT_ROOT}/`
 
 ## 概要
 
@@ -21,16 +21,16 @@
 ## 改动文件清单
 
 新增：
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/tools/rocq-of-rust-typecheck/tool.toml`
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/tools/rocq-of-rust-typecheck/rocq-of-rust-typecheck-wrapper.sh`
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/tools/rocq-of-rust-typecheck/harness.rs.tera`
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/tools/rocq-of-rust-typecheck/README.md`
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/deep-reports/cc-reports/rocq-of-rust-typecheck.md`
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/docs/fixes/rocq-of-rust-typecheck-implementation-2026-05-11.md`（本文）
+- `${TS_PROJECT_ROOT}/tools/rocq-of-rust-typecheck/tool.toml`
+- `${TS_PROJECT_ROOT}/tools/rocq-of-rust-typecheck/rocq-of-rust-typecheck-wrapper.sh`
+- `${TS_PROJECT_ROOT}/tools/rocq-of-rust-typecheck/harness.rs.tera`
+- `${TS_PROJECT_ROOT}/tools/rocq-of-rust-typecheck/README.md`
+- `${TS_PROJECT_ROOT}/deep-reports/cc-reports/rocq-of-rust-typecheck.md`
+- `${TS_PROJECT_ROOT}/docs/fixes/rocq-of-rust-typecheck-implementation-2026-05-11.md`（本文）
 
 修改：
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/.env.example`（加 `TS_ROR_TYPECHECK_SWITCH` / `TS_ROR_RUNTIME_PATH`）
-- `/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/.env`（同上）
+- `${TS_PROJECT_ROOT}/.env.example`（加 `TS_ROR_TYPECHECK_SWITCH` / `TS_ROR_RUNTIME_PATH`）
+- `${TS_PROJECT_ROOT}/.env`（同上）
 
 **没动**任何其他工具的 `tool.toml` / cc-report；没动 runner 框架；没动 `docs/design/{principles, architecture, tool-integration, detailed-design}.md`。
 

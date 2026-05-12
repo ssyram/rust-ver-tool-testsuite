@@ -8,7 +8,7 @@
 
 - **锚定 run**：`runs/run-1778226613-5282`
 - **起止**：2026-05-08T07:50:13Z – 08:16:08Z UTC，1555 s wall（25 min 55 s）
-- **Host**：`ssyramdeMacBook-Air.local` / macOS aarch64 / kernel 25.4.0 / Apple M5 / 24 576 MB / 10 cores
+- **Host**：`host` / macOS aarch64 / kernel 25.4.0 / Apple M5 / 24 576 MB / 10 cores
 - **并发**：parallelism = 10
 - **总 task**：19 工具 × 146 entries = **2774 task**
 - **结果分布**：SUCCESS 1900 / FAILED 874 / **UNKNOWN 0** / **TIMEOUT 0**

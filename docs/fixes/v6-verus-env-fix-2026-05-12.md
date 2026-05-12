@@ -29,7 +29,7 @@ verus 启动时通过查找同目录的 `verus-root` 文件来确定其 sysroot�
 
 ```diff
 -TS_VERUS_BIN=/tmp/ts-tools-install/verus-download/verus-arm64-macos/verus
-+TS_VERUS_BIN=/Users/ssyram/.local/share/ts-tools/verus/verus-arm64-macos/verus
++TS_VERUS_BIN=${TS_TOOLS_BASE}/verus/verus-arm64-macos/verus
 ```
 
 ## 历史回声

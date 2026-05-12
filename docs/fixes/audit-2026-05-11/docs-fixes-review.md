@@ -111,7 +111,7 @@ audit-2 §3.4 第 204-225 行：
 第 81-87 行：
 
 > P16-impl-A 跑 runner --tool hax-lean --entry 'runnable/*' 实测：**0 SUCCESS / 15 FAILED**（2026-05-11 本机）。
-> 根因：本机 TS_HAX_ENGINE_BIN=/Users/ssyram/.opam/default/bin/hax-engine 当前不可达——rust-engine/src/ocaml_engine.rs:130 内部 spawn 找不到子组件 ...
+> 根因：本机 TS_HAX_ENGINE_BIN=${OPAM_DEFAULT_PREFIX}/bin/hax-engine 当前不可达——rust-engine/src/ocaml_engine.rs:130 内部 spawn 找不到子组件 ...
 > 这是已知的 hax 工具链本地环境配置问题，不属本任务（P16-impl-A：corpus）范围。P16-impl-B 实施前需先恢复 hax-engine 子组件路径——这条记入 hax-lean-eval tool README 的安装步骤。
 
 这是"P16-impl-B 已知 blocker"。但本 baseline 文档没说"如该 blocker 在 P16-impl-B 仍未解，应如何处理"。建议在 §6 后续工作段加"如 hax-engine 不可恢复，需评估替换方案 / 暂缓 P16-impl-B"。

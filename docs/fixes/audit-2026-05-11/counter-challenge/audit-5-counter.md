@@ -43,7 +43,7 @@ if closed && valid {
 } else { ... }
 ```
 
-`std::env::var(&name).unwrap_or_default()`：若 env 缺失，返回空串。**无任何 `eprintln!` / `tracing::warn!` 输出**。`grep -n "warn" /Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/runner/src/discover.rs` 整文件 0 命中（除注释外），确认 expand_env 内 0 警告。
+`std::env::var(&name).unwrap_or_default()`：若 env 缺失，返回空串。**无任何 `eprintln!` / `tracing::warn!` 输出**。`grep -n "warn" ${TS_PROJECT_ROOT}/runner/src/discover.rs` 整文件 0 命中（除注释外），确认 expand_env 内 0 警告。
 
 **独立证据 2（实测）**：构造测试场景，unset `TS_CHARON_BIN` 后跑 charon-poly：
 

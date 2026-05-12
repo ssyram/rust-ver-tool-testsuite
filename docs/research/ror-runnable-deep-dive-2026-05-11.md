@@ -3,7 +3,7 @@
 > 调研对象：rocq-of-rust（formal-land 出品，本测试基线 commit `a8a76a4d`）
 > 调研目标：判断"ror 产物在 Rocq 中能否 typecheck / evaluate / 与 Rust 输出一致"
 > 上层调研基线：`docs/research/translation-correctness-feasibility-2026-05-11.md`（认为 ror 短期不可达）
-> 工作目录：`/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/`
+> 工作目录：`${TS_PROJECT_ROOT}/`
 > 实测临时目录：
 >   - 上游 ror 仓库镜像：`/private/tmp/rocq-of-rust-clone/`（已在上层调研中 clone）
 >   - 编译实验：`/tmp/ror-eval-test/` + `/tmp/ror-eval-test/manual_test/`
@@ -149,7 +149,7 @@ opam install --switch=ror-test rocq-smpl coq-hammer.1.3.2+9.0 coq-coqutil -y
 | smpl + hammer + coqutil | ~3 min | +200 MB | ✅ |
 | **总计** | **~15 min** | **~1.6 GB** | ✅ |
 
-`/Users/ssyram/.opam/ror-test/bin/{rocq, coqc}` 可用，version `The Rocq Prover, version 9.0.0`（OCaml 5.2.0）。
+`${HOME}/.opam/ror-test/bin/{rocq, coqc}` 可用，version `The Rocq Prover, version 9.0.0`（OCaml 5.2.0）。
 
 ### §3.3 已用 / 不用对照
 

@@ -82,11 +82,11 @@ cp -R /tmp/ts-tools-install/jdk-x64 ~/.local/share/ts-tools/
 ```diff
 -TS_PRUSTI_RUSTC=/tmp/ts-tools-install/prusti/prusti-rustc
 -TS_CARGO_PRUSTI=/tmp/ts-tools-install/prusti/cargo-prusti
-+TS_PRUSTI_RUSTC=/Users/ssyram/.local/share/ts-tools/prusti/prusti-rustc
-+TS_CARGO_PRUSTI=/Users/ssyram/.local/share/ts-tools/prusti/cargo-prusti
- TS_PRUSTI_RUST_TOOLCHAIN_DIR=/Users/ssyram/.rustup/toolchains/nightly-2023-08-15-x86_64-apple-darwin
++TS_PRUSTI_RUSTC=${TS_TOOLS_BASE}/prusti/prusti-rustc
++TS_CARGO_PRUSTI=${TS_TOOLS_BASE}/prusti/cargo-prusti
+ TS_PRUSTI_RUST_TOOLCHAIN_DIR=${RUSTUP_TOOLCHAINS}/nightly-2023-08-15-x86_64-apple-darwin
 -TS_PRUSTI_JAVA_HOME=/tmp/ts-tools-install/jdk-x64/jdk-17.0.19+10/Contents/Home
-+TS_PRUSTI_JAVA_HOME=/Users/ssyram/.local/share/ts-tools/jdk-x64/jdk-17.0.19+10/Contents/Home
++TS_PRUSTI_JAVA_HOME=${TS_TOOLS_BASE}/jdk-x64/jdk-17.0.19+10/Contents/Home
 ```
 
 ## 4. 实测验证

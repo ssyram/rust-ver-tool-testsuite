@@ -524,7 +524,7 @@ fn __ts_invoke() {
   "run_started_unix_secs": 1778126061,
   "run_finished_unix_secs": 1778126531,
   "host": {
-    "hostname": "ssyramdeMacBook-Air.local",
+    "hostname": "host",
     "os": "macos",
     "arch": "aarch64",
     "kernel": "25.4.0",

@@ -84,7 +84,7 @@ P16-impl-A 验证（2026-05-11 实测）：
 
 P16-impl-A 跑 `runner --tool hax-lean --entry 'runnable/*'` 实测：**0 SUCCESS / 15 FAILED**（2026-05-11 本机）。
 
-根因：本机 `TS_HAX_ENGINE_BIN=/Users/ssyram/.opam/default/bin/hax-engine` 当前不可达——`rust-engine/src/ocaml_engine.rs:130` 内部 spawn 找不到子组件（错误：`Os { code: 2, kind: NotFound }`）。**与新增 entry 无关**——baseline `hello/basic-hello/hello` 在同一次 run 中也 FAILED。
+根因：本机 `TS_HAX_ENGINE_BIN=${OPAM_DEFAULT_PREFIX}/bin/hax-engine` 当前不可达——`rust-engine/src/ocaml_engine.rs:130` 内部 spawn 找不到子组件（错误：`Os { code: 2, kind: NotFound }`）。**与新增 entry 无关**——baseline `hello/basic-hello/hello` 在同一次 run 中也 FAILED。
 
 这是已知的 hax 工具链本地环境配置问题，不属本任务（P16-impl-A：corpus）范围。P16-impl-B 实施前需先恢复 hax-engine 子组件路径——这条记入 hax-lean-eval tool README 的安装步骤。
 
