@@ -4,7 +4,7 @@ ror 翻译产物在 Rocq 中的 typecheck（档 1）自动化——`rocq-of-rust
 
 ## 简介
 
-`rocq-of-rust` 是 Rust → Rocq 翻译器（formal-land 出品）。`tools/rocq-of-rust` 测档 0（前端 = 翻译落盘 + 6 道 grep 门）；本工具在此基础上加 Stage 2，**真在 Rocq 9 里 `coqc` 编译产物**，把档 1 接入 testsuite。
+`rocq-of-rust` 是 Rust → Rocq 翻译器（formal-land 出品）。`tools/rocq-of-rust` 测档 0（前端 = 翻译落盘 + 7 道 grep 门）；本工具在此基础上加 Stage 2，**真在 Rocq 9 里 `coqc` 编译产物**，把档 1 接入 testsuite。
 
 档位定义（按 `docs/research/translation-correctness-feasibility-2026-05-11.md`）：
 
@@ -19,7 +19,7 @@ ror 翻译产物在 Rocq 中的 typecheck（档 1）自动化——`rocq-of-rust
 
 ## 本测试集中的"前端接受"定义
 
-本工具是 ror 的**档 1 收紧**版：在档 0 的 6 道门（翻译落盘 + 无 silent fallback）之上加 typecheck。
+本工具是 ror 的**档 1 收紧**版：在档 0 的 7 道门（翻译落盘 + 无 silent fallback + stderr `is not yet supported` 拦截）之上加 typecheck。
 
 - **前端**（本工具检测的范围）：rocq-of-rust translate → `.v` 产物 → `coqc -R <runtime> RocqOfRust` → `.vo`
 - **后端**（本工具不检测）：用户自己拿 `.vo` 写 `Run.Trait` instance + `simulate/<fn>.v`，配合 `SimulateM.eval_f` 走档 2/3 ——纯人工 proof engineering，不在本工具范围
@@ -40,13 +40,13 @@ rocq_translation/<abs-path>/lib.v
 <product>.vo  + stderr 检查
 ```
 
-Stage 1 与 `tools/rocq-of-rust` 完全等价（同 sysroot / 同 binary / 同 6 道 grep）。Stage 2 是本工具新增。
+Stage 1 与 `tools/rocq-of-rust` 完全等价（同 sysroot / 同 binary / 同 7 道 grep——含 P30 同步加的 `is not yet supported` gate 恢复 tier-1 ⊆ tier-0 不变式）。Stage 2 是本工具新增。
 
 ### 判定与 SUCCESS 信号
 
-**SUCCESS 信号（严格反映档 1 边界）**：满足 9 道门。
+**SUCCESS 信号（严格反映档 1 边界）**：满足 10 道门。
 
-档 0 已有的 6 道门（gate 1-6）：
+档 0 已有的 7 道门（gate 1-7）：
 
 1. rocq-of-rust translate exit code = 0
 2. 至少一个 `.v` 产物存在
@@ -54,12 +54,13 @@ Stage 1 与 `tools/rocq-of-rust` 完全等价（同 sysroot / 同 binary / 同 6
 4. 至少一个 `.v` > 200 字节
 5. 产物不含显式 failure marker grep：`\(\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )`
 6. 产物中至少一个 `.v` 含 `^[[:space:]]*Definition[[:space:]]+<TS_ENTRY_FN>[[:space:]]`
+7. stderr 不含 `is not yet supported`（D3.1 silent partial gate；P30 同步）
 
-档 1 新增 3 道门（gate 7-9）：
+档 1 新增 3 道门（gate 8-10）：
 
-7. **coqc exit code = 0**
-8. **coqc 产出 `.vo`**（exit 0 + 无产物的理论 belt-and-braces）
-9. **coqc stderr 无 `^Error` 行**（exit 0 + 含 Error 的理论 belt-and-braces）
+8. **coqc exit code = 0**
+9. **coqc 产出 `.vo`**（exit 0 + 无产物的理论 belt-and-braces）
+10. **coqc stderr 无 `^Error` 行**（exit 0 + 含 Error 的理论 belt-and-braces）
 
 任一门失败 → FAILED。
 
@@ -129,11 +130,11 @@ git clone https://github.com/formal-land/rocq-of-rust.git
 参见 `tool.toml` + `rocq-of-rust-typecheck-wrapper.sh`。关键参数：
 
 - **command**：通过 `env` 注入 `ROR_TYPECHECK_SWITCH` / `ROR_RUNTIME_PATH` / `ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 后调 wrapper
-- **wrapper**：activate opam switch → runtime bootstrap → Stage 1 translate → 6 道 grep 门 → Stage 2 coqc → gate 7-9
+- **wrapper**：activate opam switch → runtime bootstrap → Stage 1 translate → 7 道 grep 门 → Stage 2 coqc → gate 8-10
 - **entry_mode**：默认 `bin`；harness 写入 `src/bin/__ts_harness.rs`，但 rocq-of-rust 只读 `src/lib.rs`，harness 不参与
 - **timeout_secs**：180 s（rocq-of-rust 一般 < 5 s + coqc 一般 < 1 s + 首次 bootstrap ~3 s + slack）
 
-**与 tools/rocq-of-rust 的关系**：本工具是档 1 的严格上层包裹。Stage 1 与 `tools/rocq-of-rust/tool.toml` 等价（同 6 道 grep）；Stage 2 是新增。因此**任一 entry 在本工具 SUCCESS ⇒ 在 `tools/rocq-of-rust` SUCCESS**（档 1 ≤ 档 0）；反过来一个 entry 可能 ror 档 0 SUCCESS 但 coqc 编不过——这种 entry **暴露 ror 翻译的 silent typecheck bugs**（产物落盘但 Rocq 内部不接受）。
+**与 tools/rocq-of-rust 的关系**：本工具是档 1 的严格上层包裹。Stage 1 与 `tools/rocq-of-rust/tool.toml` 等价（同 7 道 grep）；Stage 2 是新增。因此**任一 entry 在本工具 SUCCESS ⇒ 在 `tools/rocq-of-rust` SUCCESS**（档 1 ≤ 档 0）；反过来一个 entry 可能 ror 档 0 SUCCESS 但 coqc 编不过——这种 entry **暴露 ror 翻译的 silent typecheck bugs**（产物落盘但 Rocq 内部不接受）。
 
 ## 与 hax-lean 的可运行性对比 / 档 2/3 架构上不可达
 
@@ -165,7 +166,7 @@ git clone https://github.com/formal-land/rocq-of-rust.git
 
 **项目决策**：
 
-- **投入档 1 自动化**：本工具上线，9 道 gate（档 0 的 6 道 + coqc exit/产物/stderr 3 道）。
+- **投入档 1 自动化**：本工具上线，10 道 gate（档 0 的 7 道 + coqc exit/产物/stderr 3 道）。
 - **不投入档 2/3 自动化**：per-entry 手工证 vs corpus ~150 entries 规模严重不匹配；ror 上游设计哲学就是"把语义留作用户 proof obligation"（产物头部明确带 `Admitted.`），自动化"运行"违背工具意图。
 - 严格说，本工具测的是"翻译产物在 Coq 里是有效的 Coq 项"——**结构正确，语义不验证**。`Admitted.` 占位通过 typecheck 是档 1 的诚实边界，不是 oracle 漏报。
 

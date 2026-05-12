@@ -61,7 +61,17 @@ A 的位阶澄清把承诺从天真版降级为：**"原始磁盘字面零修改
 
 ### 原则 B 在结果分类上的扩展
 
-SUCCESS / FAILED 的二分初看够用：exit 0 = SUCCESS，非 0 = FAILED。但 runner 自己 IO 失败、cp 失败、模板渲染失败的时候若都标 FAILED，下游会误读为"该工具不能处理该 entry"——这是 runner 自己的 bug，不是工具的表态。所以分类扩出 **UNKNOWN**：runner-internal 错误归 UNKNOWN，subprocess 跑完且非零归 FAILED，subprocess exit 0 归 SUCCESS。三类处于不同语义维度（SUCCESS / FAILED 描述子进程结果，UNKNOWN 描述 runner 状态）——不破 B 在工具评判层的简洁。
+SUCCESS / FAILED 的二分初看够用：exit 0 = SUCCESS，非 0 = FAILED。
+
+但 P27 修宪（2026-05-12 引入"不公信"根本问题 + 三原则栈本地性 / 社区惯例 / 最大善意）后，分类扩出 **UNKNOWN** 投影两条根本问题：
+
+- **"不公平"侧投影**：runner-internal 错误（cp / 渲染 / spawn 失败）的失败如果归 FAILED，下游会读成"该工具不能处理该 entry"——但这是 runner 的 bug 不是工具表态。归 UNKNOWN 切干净
+- **"不公信"侧投影 + UNKNOWN 严格语义**（principles.md §六）：UNKNOWN 仅两类——
+  - (a) **全局工具链崩溃**（用户重装可修，如 verus 缺 `verus-root`、prusti `viper_tools` 丢失）
+  - (b) **我们这边可识别问题暂未修**（如我们 harness 模板 bug → `runnable_harness_arg_mismatch`、我们 corpus 引入的 vendored crate lint → `vendor_lint_strictness`、我们环境损坏 → `environment_corruption`）。每类必附**明确归因 + 会修计划**
+- **不归 UNKNOWN 一律 FAILED**：工具自身能力边界（如官方 wrapper 失败 / 工具自选 toolchain 不支持新 feature / 单文件 pipeline 不读 Cargo.toml / 官方 wrapper 不传 `--edition`）——按本地性原则 FAILED 站得住，工具开发者不能驳回。这条由 `runner/src/report.rs::classify_external_fault` 实施：P27 起 oracle 仅保留 (b) 子类 3 条规则，原 v5.1 含的 dependency_resolution / toolchain_edition_mismatch / edition_pipeline_propagation 三条已被剃（详 commit `28b4a03`）
+
+三类处于不同语义维度（SUCCESS / FAILED 描述子进程结果，UNKNOWN 描述"我们这边问题或全局环境损坏"）——不破 B 在工具评判层的简洁。
 
 ---
 
@@ -165,7 +175,8 @@ runs/run-<ts>-<pid>/         每次 run 输出根 — 由 runner 生成
   - timed_out = true 蕴含 status = Failed，且 exit 文件内容为 "__ts_timeout (after N s)"
 
 后置条件（失败路径）：
-  - 任一步 IO 错误时返回 Err(anyhow)，由 main 转为 UNKNOWN
+  - 任一步 IO 错误时返回 Err(anyhow)，由 main 转为 UNKNOWN（属"我们这边问题"——runner 自身故障，按 principles.md §六 UNKNOWN 严格语义 (b) 类，应附诊断信息）
+  - 子进程 spawn 成功但 exit ≠ 0 → status = Failed（worker 再交给 report::classify_external_fault 检查是否符合 (b) UNKNOWN 子类型，否则保持 FAILED）
 
 不变式：
   - exec_id 由 (tool.name, example.feature, example.dir, entry) 经 sanitize 唯一确定
@@ -278,7 +289,7 @@ runs/run-<ts>-<pid>/         每次 run 输出根 — 由 runner 生成
 | cp 时跳过 `Cargo.lock`（让 fresh resolve；规避旧 cargo 不识别新版 lockfile） | 功能性 | 锁定 |
 | 隔离机制：per-execution `cp -r` 隔离副本 | A | 锁定 |
 | 运行原子 = 单 entry，不批跑 | A 的运行时投影 | 锁定 |
-| ResultClass 三分（SUCCESS / FAILED / UNKNOWN，UNKNOWN 仅记 runner-internal 错误） | B + Occam | 锁定 |
+| ResultClass 三分（SUCCESS / FAILED / UNKNOWN，UNKNOWN 仅含 §一 不公信侧 (a) 全局工具链崩溃 + (b) 我们这边可识别问题暂未修两类；详 §一 末段） | B + §一 双根本投影 + Occam | 锁定（P27 严格化）|
 | 不预跳过任何 (tool, entry) 组合——能力靠观测 | A ∩ B | 锁定 |
 | `results.json` 顶部 metadata 段（host / 时间戳 / 各工具 version_command 输出） | 工具非静态原则 | 锁定 |
 | CLI `--tool <NAME>` / `--entry <GLOB>` 子集筛选 | UX | 锁定 |

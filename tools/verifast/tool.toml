@@ -3,11 +3,13 @@
 # Invocation strategy:
 #   - We invoke verifast through tools/verifast/verifast-strict-wrapper.sh
 #     (NOT directly), which runs verifast with the same flags below and then
-#     post-checks for the vacuous-pass signature
-#         "0 errors found (N statements verified)" with N ≤ 40
-#     to close the §A 漏报 gap documented in
-#     docs/fixes/oracle-leak-audit-2026-05-08.md §3.1 and the implementation
-#     log docs/fixes/oracle-leak-rules-implementation-2026-05-08.md §2.1.
+#     post-checks the vacuous-pass signature. The current oracle anchors on
+#     "src/lib.rs(" appearing in the symex statement list (proves user code
+#     was symbolically executed, not just prelude). See the wrapper header
+#     for the precise grep; this comment is just the design intent — do not
+#     rely on the exact text here, it is descriptive only.
+#     Background: docs/fixes/oracle-leak-audit-2026-05-08.md §3.1 +
+#     docs/fixes/oracle-leak-rules-implementation-2026-05-08.md §2.1.
 #   - The runner strips all TS_* envvars before spawning children
 #     (runner/src/exec.rs:165), so we re-export TS_VERIFAST_BIN as the
 #     non-prefixed VERIFAST_BIN that the wrapper consumes (same convention
@@ -33,11 +35,11 @@
 #                       //verifast_options{...} directives; lets annotated
 #                       examples override the defaults.
 #
-# exit 0 (passed wrapper)  → verification succeeded (and N > 40 for
-#                            spec-bearing entries, see wrapper) → SUCCESS
-# exit 2 (rewritten by wrapper) → vacuous pass detected (N ≤ 40,
-#                                  spec-less corpus baseline)    → FAILED
-# exit 1 (verifast direct)  → verification error                  → FAILED
+# exit 0 (passed wrapper)  → verification succeeded + wrapper post-check
+#                            confirms user code was symex'd → SUCCESS
+# exit 2 (rewritten by wrapper) → vacuous pass detected (prelude-only
+#                                  symex, user code absent) → FAILED
+# exit 1 (verifast direct)  → verification error               → FAILED
 #
 # Limitation: only src/lib.rs is fed to verifast; the src/bin/__ts_harness.rs
 # harness is written by the runner (framework contract) but is intentionally

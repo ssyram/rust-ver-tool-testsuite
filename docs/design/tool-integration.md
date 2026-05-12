@@ -1,8 +1,8 @@
 # 工具集成原则与 README 书写规范
 
-> **前置约束**：本文是 [`principles.md`](principles.md) §六-本节自我性声明 + §三-3-原则 3 的展开——是**我方维护 tools 集成与实测报告**的具体实现原则。
+> **前置约束**：本文是 [`principles.md`](principles.md) §二 生效约束 + §三 模块定位 + §六 次要模块精神的展开——是**我方维护 tools 集成与实测报告**的具体实现原则。
 >
-> **自我性**：本文是我方在使用本框架时的方法学选择。**外来 tools 无须遵守**；他人复用本框架可做不同选择（如纳入 SMT、做下限测试等），仅需遵守 [`principles.md`](principles.md) §四 三大派生原则。
+> **自我性**：本文是我方在使用本框架时的方法学选择。**外来 tools 无须遵守**；他人复用本框架可做不同选择（如纳入 SMT、做下限测试等），仅需遵守 [`principles.md`](principles.md) §四 核心原则 A / B / C。
 >
 > 索引位置：[`architecture.md`](architecture.md) §八 下游索引。
 
@@ -16,7 +16,7 @@
 - 锁定的 commit hash / 版本号 / brew tap / nightly toolchain pin
 - 安装方式（按上游文档自行安装；本项目不提供安装脚本——避免在工具版本变迁后误导）
 
-`tool.toml` 必须含 `version_command`——runner 在每次 run 自动捕获工具版本字符串到 `results.json` metadata 段，按宪法 §五"工具非静态原则"裸数据自描述。
+`tool.toml` 必须含 `version_command`——runner 在每次 run 自动捕获工具版本字符串到 `results.json` metadata 段，按宪法 §六"时空锚定"裸数据自描述。
 
 ---
 
@@ -27,9 +27,9 @@
 - **exit code 单一信号**（如 cargo-check / kani / verus / aeneas / charon）
 - **exit code + 产物字面 grep**（如 hax × 3 / rocq-of-rust）
 - **exit code + stderr 模式 grep**（如 kmir 的 `#EndProgram ~> .K`）
-- **多门组合**（如 rocq-of-rust 的 6 道门：exit 0 + 至少一个 .v + 无 0-byte + > 200B + 无 silent marker + entry_fn `Definition` 存在性；P15 引入 gate 6 + N=7 attempts AND-reduce）
+- **多门组合**（如 rocq-of-rust 的 7 道门：exit 0 + 至少一个 .v + 无 0-byte + > 200B + 无 silent marker + entry_fn `Definition` 存在性 + stderr 无 `is not yet supported`；P15 / P28 累积；N=7 attempts AND-reduce）
 
-工具用何种形式指标由工具自身设计决定（按宪法 §三-3-2.a），但必须在 README 显式列出。
+工具用何种形式指标由工具自身设计决定（按宪法 §四 原则 C "异质性归配置"），但必须在 README 显式列出。
 
 ---
 
@@ -37,7 +37,7 @@
 
 **0 误报的定义**：oracle 判 SUCCESS 时一定是真 SUCCESS（不冤枉工具能力）。
 
-**这是必须论证的硬指标**（按宪法 §三-3-2.b 上限保证）。论证形式不限定——**任何能提供足够证据的方式都可**：
+**这是必须论证的硬指标**（按宪法 §六 Oracle 责任"不冤枉" + §二 Q5 第 2 条"SUCCESS 信号必须诚实"）。论证形式不限定——**任何能提供足够证据的方式都可**：
 
 - **反向证明**（最常见、最简单）：论证 oracle FAILED 时一定说明工具内部有问题，即 oracle FAILED ⟹ 真 partial。这种"satisfy 不一定无问题，但不 satisfy 一定有问题"的非对称是常见的工程论证形式
 - **源码层穷尽**：grep 工具源码所有 oracle FAILED 触发点，每点对应真 partial
@@ -62,7 +62,7 @@
 
 **0 漏报的定义**：oracle 判 SUCCESS 时真的没漏抓任何 partial（不高估能力）。
 
-**这是软指标**（按宪法 §三-3-2.c 下限诚实）——**漏报是允许的**，只是尽量不要。优先级：能形式证明最好；不能则提供防漏报机制并声明盲点。
+**这是软指标**（按宪法 §六 Oracle 责任"不藏"——已知漏报盲点必须文档化）——**漏报是允许的**，只是尽量不要。优先级：能形式证明最好；不能则提供防漏报机制并声明盲点。
 
 ### 4.1 形式证明（最理想）
 
@@ -112,6 +112,16 @@
 
 - **hax-lean**：hax engine 完全 skip item（item 既不写 sorry 也不发 Diagnostic，不出现在产物里）；上游引入新 silent path 而 grep 滞后
 - **rocq-of-rust**：上游引入新 silent fallback 路径不带已知 markers；完全 skip item 类（合理 skip，不算漏报）
+- **aeneas（4 backend）**：aeneas 上游 Warn 通道 partial 自陈四类已 wrapper grep 拦截（P30）；上游再加新 Warn pattern → 需扩 wrapper grep
+
+### 4.5 失败归因：我们的 wrapper vs 官方 wrapper
+
+P27 修宪后，宪法 §六 UNKNOWN 严格语义把"wrapper 失败"按归属切两类（见 [`principles.md`](principles.md) §六 末段）：
+
+- **我们包装的 wrapper**（如 `prusti-strict-wrapper.sh` / `aeneas-*-wrapper.sh` / `rocq-of-rust-wrapper.sh` / `verifast-strict-wrapper.sh` 等本项目维护的脚本）失败 = 我们这边问题 → **UNKNOWN** (b) 类，附"会修计划"
+- **官方工具自带 wrapper**（如 kmir 的 Python `kmir/cargo.py`、charon 内置 cargo driver、aeneas 自身 OCaml 主程序）失败 = 工具锅 → **FAILED**（本地性原则下站得住）
+
+判定规则要在 oracle 设计 + README 漏报盲点段一致——某工具 wrapper 路径混合（我们包了官方）时，按"最近责任主体"切：我们包的层抛错 → UNKNOWN；官方层抛错（即使被我们 wrapper 转发）→ FAILED。
 
 ---
 
@@ -138,13 +148,13 @@
 - 暗示客观真理（如"工具 X 是错的"）
 - 跨工具能力排序（如"X 比 Y 更好"）—— 框架不评比，只测 entry 级二值信号
 
-按 [`principles.md`](principles.md) §三-3-1 时效性，所有工具陈述都锚定具体时间 + 工具版本组合，不构成长期承诺。
+按 [`principles.md`](principles.md) §六 时空锚定，所有工具陈述都锚定具体时间 + 工具版本组合，不构成长期承诺。
 
 ---
 
 ## 七、实测报告原则
 
-> 本节展开 [`principles.md`](principles.md) §三-3-原则 3 的"实测报告责任边界"。
+> 本节展开 [`principles.md`](principles.md) §三 模块定位（次要模块时效性）+ §六 次要模块精神（时空锚定）的"实测报告责任边界"。
 
 ### 7.1 约束对象明示（首要澄清）
 

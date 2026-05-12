@@ -8,7 +8,7 @@
 > `hirusttest.toml` 是项目自有 schema，不在 cargo / rustc 识别的文件名集合——加不加它，对 example 上任意 `cargo` 子命令的输出**字节级一致**。这是 examples 端"自身完善独立"的实现保证。
 > `tools/<name>/{tool.toml, harness.rs.tera, *.sh}` 是**集成者描述工具自身行为**的桥接信号，**不是工具自身的修改**——工具本身（cargo-kani / cargo-prusti 等）作为黑盒，绝不为框架适配。
 
-### 双轨 example schema（按 [`principles.md`](principles.md) §四 A 双轨 schema）
+### 双轨 example schema（工程派生自 [`principles.md`](principles.md) §四 A "信号文件加入前后 cargo 字节级一致"；具体形态在本文工程决定）
 
 按 example 复杂度选轨。两轨都满足"cargo / rustc 不读 → 行为字节级一致"的形式定义。
 
@@ -131,14 +131,17 @@ version_command  = ["cargo", "kani", "--version"]                # 可选，默�
 
 ### `tools/<name>/harness.rs.tera`
 
-[Tera](https://keats.github.io/tera/) 模板。可用变量恰好两个：
+[Tera](https://keats.github.io/tera/) 模板。可用变量三个：
 
 | 变量 | 类型 | 含义 |
 |---|---|---|
 | `target_crate_name` | `String` | 来自样例 `Cargo.toml` 的 `[package].name` |
 | `entry_fn` | `String` | 当前 task 的 entry 名 |
+| `entry_args` | `String` | runnable corpus entry 的 call-site 实参字符串（Rust 表达式列表，逗号分隔）；非 runnable entry 为空串 |
 
 变量集**固定**——不允许 tool config 扩展（破坏原则 C 的"标准词汇"约束）。
+
+`entry_args` 由 runner P21 (Y) 引入支持 runnable corpus（15 entries 在 v6）：当 entry 在 `hirusttest.toml` 中有 `[runnable.<entry>]` 表声明 `inputs = [...]` 时，runner 渲染 `inputs` 表达式列表传入；否则 `entry_args` 为空串，模板可写 `{{ entry_fn }}({{ entry_args }})` 同时兼容零参 / 多参两类 entry。详 `runner/src/exec.rs::execute` + `runner/src/discover.rs::HirusttestToml::runnable`。
 
 ## 二、ID 派生 + 文件名 sanitize
 
@@ -308,6 +311,19 @@ ID 格式：`<feature>/<dir>/<entry-fn>`，三段分别取自 `examples/` 第一
 ### 隔离机制
 
 cp 而非 git worktree：worktree 拿 HEAD 要求每次新增样例都 commit；cp 拿当前文件，开发友好。两者契约等价（隔离副本），通用性论证不依赖具体复制机制。`copy_dir_excluding` 跳过 `target/`（避免 build 缓存污染）和 `Cargo.lock`（避免旧 cargo 不识别 v4 锁文件，且本项目是 feature 覆盖筛选不需要跨 run 锁定 dep）。
+
+### 子进程 env 契约（TS_* 隔离 + 注入）
+
+runner 在 spawn 子进程时对环境变量做下列变换（详 `runner/src/exec.rs::execute`）：
+
+1. **隔离**：spawn 前 strip 所有 `TS_*` 前缀的 envvar——这些是 runner-internal config（从 `.env` 读，用于 `tool.toml` 的 `${VAR}` 展开），**不得**漏到工具子进程（如 prusti 把任何 PRUSTI_* / TS_* 字眼当 config flag，未知名直接 panic）
+2. **注入（strip 后）**：
+   - `TS_ENTRY_FN` = 当前 task 的 entry 名（oracle 脚本如 `rocq-of-rust-wrapper.sh` 用此 grep `Definition <entry>`）
+   - `TS_TARGET_CRATE` = sanitize 后的 crate ident（同上用途）
+3. **`${VAR}` 展开**：`tool.toml` 的 `command` / `version_command` 数组里每条字符串经 runner 做 `${TS_*}` 展开后才 spawn（保留 array argv 不走 shell 拼接），由 `discover::expand_env_vars` 实施
+4. **`TS_PROJECT_ROOT`**：runner 启动时自动设为 CWD（项目根），用于 wrapper script 解析 `${TS_PROJECT_ROOT}/tools/<name>/...-wrapper.sh` 类绝对路径
+
+工具 wrapper 类工具的核心 contract——若未来加新 wrapper 工具或调整路径展开规则，必须保持上述四点不变。
 
 ### 并发
 
@@ -534,12 +550,27 @@ fn __ts_invoke() {
       "raw_stdout": null,
       "raw_stderr": null,
       "error": "patching ...: parsing Cargo.toml as TOML: ..."
+    },
+    {
+      "entry_id": "industrial/x509-parser/cert-parse/x509_parse_der",
+      "tool": "kani",
+      "status": "UNKNOWN",
+      "exit_code": 1,
+      "duration_ms": 5234,
+      "raw_stdout": "raw/kani/industrial__x509-parser__...stdout",
+      "raw_stderr": "raw/kani/industrial__x509-parser__...stderr",
+      "error": "external_fault: vendor_lint_strictness"
     }
   ]
 }
 ```
 
-`timed_out` 字段省略时为 false（serde `skip_serializing_if = "is_false"`）。`error` 字段仅 UNKNOWN 任务存在。
+`timed_out` 字段省略时为 false（serde `skip_serializing_if = "is_false"`）。`error` 字段仅 UNKNOWN 任务存在，两种来源（按 P27 修宪后 §六 UNKNOWN 严格语义投影）：
+
+- **runner-internal failure**（前一例）：error 是原始错误字符串（cp / 渲染 / spawn 失败信息）。属 §六 (b) 类我们这边问题，但发生在 oracle 接管前
+- **`external_fault: <subtype>` 形式**（后一例）：subprocess 跑完且 exit ≠ 0，但 `report::classify_external_fault` 识别为 (b) 子类（`runnable_harness_arg_mismatch` / `vendor_lint_strictness` / `environment_corruption`）。`raw_stdout` / `raw_stderr` 仍保留供 audit
+
+第三方消费者按 `error` 是否以 `"external_fault: "` 前缀切分两种 UNKNOWN 来源；前者 raw_* 均为 null，后者保留。
 
 ### `runs/run-<id>/report.md`
 
@@ -572,8 +603,26 @@ Total: 260 succeeded / 41 failed / 0 unknown / 301 total
 | 错误类型 | 处理 |
 |---|---|
 | Schema 解析失败（Cargo.toml / hirusttest.toml / tool.toml） | runner 启动时 panic（discover 阶段错——配置 bug，不该静默） |
-| 单 task 内 IO / cp / 渲染 / spawn 失败 | 任务标 UNKNOWN，整 run 继续 |
-| 子进程退出非零 | 任务标 FAILED + exit_code |
+| 单 task 内 IO / cp / 渲染 / spawn 失败 | 任务标 UNKNOWN（principles.md §六 (b) 类——"我们这边可识别问题且暂未修"——附 error 字段说明），整 run 继续 |
+| 子进程退出非零 | 任务标 FAILED + exit_code（再交 `report::classify_external_fault` 判定是否为 (b) UNKNOWN 子类——见下） |
 | 子进程被信号杀（SIGSEGV 等） | 任务标 FAILED + exit_code = None |
 | 子进程超时 | runner 发 `kill(-pgid, SIGKILL)`，任务标 FAILED + timed_out = true |
 | cleanup work_dir 失败 | 仅 log warning，不影响任务结果 |
+
+### 7.1 UNKNOWN 严格语义投影（principles.md §六）
+
+P27 修宪后 UNKNOWN 仅两类：
+
+- **(a) 全局工具链崩溃**（用户重装可修，如 verus 缺 `verus-root` / prusti `viper_tools` 丢失 / JVM crash）——runner 阶段或 oracle 阶段都可能识别
+- **(b) 我们这边可识别问题暂未修**——目前 oracle 实施 3 条子类规则（详 `runner/src/report.rs::classify_external_fault`，与 v5.1 时代相比 P27 删了 3 条工具能力边界归类的规则）：
+  - `runnable_harness_arg_mismatch`：我们 harness 模板 bug（E0061 argument）
+  - `vendor_lint_strictness`：我们 corpus 引入的 vendored crate `#![deny(unused_qualifications)]` 触发
+  - `environment_corruption`：JVM `JavaException` 类环境损坏
+
+不归 UNKNOWN 一律 FAILED——工具自身能力边界（如官方 wrapper crash / 工具自选老 toolchain / 单文件 pipeline 不读 Cargo.toml / 官方 wrapper 不传 `--edition`）。
+
+`results.json` 的 `error` 字段对 UNKNOWN 子类型编码：
+- runner-internal failure：直接是错误字符串（如 `"copying /path: No such file"`）
+- (b) 子类 oracle 重分类：格式 `"external_fault: <subtype>"`（如 `"external_fault: vendor_lint_strictness"`）
+
+下游消费者可按字符串前缀切分两种 UNKNOWN 来源。

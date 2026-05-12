@@ -18,9 +18,9 @@ rocq-of-rust 是**纯翻译工具**，没有内置的 Coq type-check / 证明阶
 - **产物**：`rocq_translation/<absolute-source-path>.v`（每个 fn 翻译为 `Definition <name>` + `Global Instance Instance_IsFunction_<name> : M.IsFunction.C "..." <name>. Admitted.` typeclass 注册）
 - **覆盖度精确意义**：SUCCESS = "rocq-of-rust 把全部源码 item lower 到产物，且无可见落空标记"。下游 `coqc` 是否能 type-check 该 .v 文件**不在本测试范围**——这依赖 RocqOfRust runtime library 提供 std/外部 crate 的 binding
 
-### Silent fallback 检测（当前 oracle：v4 = 6 道门 + N-attempt wrapper）
+### Silent fallback 检测（当前 oracle：v4 = 7 道门 + N-attempt wrapper）
 
-rocq-of-rust 设计上对未支持的构造**仍 exit 0**，把失败信号塞进 `.v` 文件里的特定标记。当前 oracle 通过 `tools/rocq-of-rust/rocq-of-rust-wrapper.sh` 实施 6 道门 + N-attempt AND-reduce（详见 §"SUCCESS 信号"）。门 5 是 corpus-tested 的 5 类显式 failure marker grep：
+rocq-of-rust 设计上对未支持的构造**仍 exit 0**，把失败信号塞进 `.v` 文件里的特定标记。当前 oracle 通过 `tools/rocq-of-rust/rocq-of-rust-wrapper.sh` 实施 7 道门 + N-attempt AND-reduce（详见 §"SUCCESS 信号"）。门 5 是 corpus-tested 的 5 类显式 failure marker grep：
 
 ```sh
 ! grep -rqE '\(\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )' rocq_translation_*
@@ -40,7 +40,7 @@ rocq-of-rust 设计上对未支持的构造**仍 exit 0**，把失败信号塞�
 
 ### SUCCESS 信号（严格反映前端特性支持范围）
 
-为了严格反映前端特性支持范围（不允许 partial），rocq-of-rust 的 SUCCESS 必须满足 **6 道门，且 wrapper N=7 次 `rocq-of-rust translate` 都通过所有门**（2026-05-11 起；现行 `rocq-of-rust-wrapper.sh` 实施；N 经验校准至 99.84% catch rate—详 fix doc §3）：
+为了严格反映前端特性支持范围（不允许 partial），rocq-of-rust 的 SUCCESS 必须满足 **7 道门，且 wrapper N=7 次 `rocq-of-rust translate` 都通过所有门**（2026-05-11 起；现行 `rocq-of-rust-wrapper.sh` 实施；N 经验校准至 99.84% catch rate—详 fix doc §3）：
 
 1. exit code = 0（每次 attempt）
 2. 至少一个 `.v` 产物存在（每次 attempt）
@@ -48,10 +48,11 @@ rocq-of-rust 设计上对未支持的构造**仍 exit 0**，把失败信号塞�
 4. 至少一个 `.v` > 200 字节（每次 attempt）
 5. 产物不含显式 failure marker grep：`\(\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )`（每次 attempt）
 6. 产物中至少一个 `.v` 文件含 `^[[:space:]]*Definition[[:space:]]+<TS_ENTRY_FN>[[:space:]]` —— entry 函数名必须真出现在 Rocq 产物里（非 silent skipped）（每次 attempt）
+7. stderr 不含 `is not yet supported`（2026-05-12 P28 / D3.1 加；rocq-of-rust 对 silent `Pattern::Wild` 退化等 partial 走 stderr warning + exit 0，本门拦截；每次 attempt）
 
 任何一次 attempt 的任何门未满足 → FAILED。
 
-第 6 道门由 runner 注入的 `TS_ENTRY_FN` 环境变量驱动（`runner/src/exec.rs:178`），封堵 audit ([`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.2) 提到的"完全 skip item 类"silent漏报路径——典型场景：entry 名实际是 `use` / `extern crate` 别名或者其他非 fn item，rocq-of-rust 在 `top_level.rs:349-390` 走 `vec![]`，产物中没有该 fn 的 `Definition`。`^[[:space:]]*` 锚点允许嵌套模块内的 fn 也命中。
+第 7 道门由 runner 注入的 `TS_ENTRY_FN` 环境变量驱动（`runner/src/exec.rs:178`），封堵 audit ([`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.2) 提到的"完全 skip item 类"silent漏报路径——典型场景：entry 名实际是 `use` / `extern crate` 别名或者其他非 fn item，rocq-of-rust 在 `top_level.rs:349-390` 走 `vec![]`，产物中没有该 fn 的 `Definition`。`^[[:space:]]*` 锚点允许嵌套模块内的 fn 也命中。
 
 N-attempt（默认 N=7，可通过 `ROCQ_OF_RUST_N_ATTEMPTS` env 覆盖）封堵 2026-05-11 P15-impl 反向暴露的非确定性翻译路径漏报：单次 grep 在 `thread_local!` 宏触发 entry 上随机 SUCCESS / FAILED，N 次 AND-reduce 把 P(漏) 压缩到原 P(漏)^N（实测 P(漏)=0.4，N=7 → catch rate 99.84%）。
 
@@ -78,12 +79,12 @@ N-attempt（默认 N=7，可通过 `ROCQ_OF_RUST_N_ATTEMPTS` env 覆盖）封堵
 
 参见 `tool.toml` + `rocq-of-rust-wrapper.sh`。关键参数：
 
-- **command**：`tool.toml` 通过 `env` 把 `ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 传给 `rocq-of-rust-wrapper.sh`；wrapper 内部循环 N=7 次调用 `rocq-of-rust translate --path src/lib.rs --output-path rocq_translation_<i>`，对每次产物逐项跑 6 道门 AND-reduce。
+- **command**：`tool.toml` 通过 `env` 把 `ROCQ_OF_RUST_TOOLCHAIN_SYSROOT` 传给 `rocq-of-rust-wrapper.sh`；wrapper 内部循环 N=7 次调用 `rocq-of-rust translate --path src/lib.rs --output-path rocq_translation_<i>`，对每次产物逐项跑 7 道门 AND-reduce。
 - **entry_mode**：未设置（默认 `bin`）；harness 写入 `src/bin/__ts_harness.rs`，但 rocq-of-rust 只读 `src/lib.rs`，harness 不参与翻译。
 - **DYLD_LIBRARY_PATH**：wrapper 内设置，指向 nightly-2024-12-07 sysroot 的 `lib/`，使 `librustc_driver-*.dylib` 在 macOS 上可被动态链接器找到。
 - **PATH 注入**：wrapper 内设置，将 nightly sysroot 的 `bin/` 置于 PATH 最前，确保 rocq-of-rust 内部调用 `rustc --print=sysroot` 时返回 nightly sysroot（而非 stable）。
 - **N-attempt 可调**：wrapper 读 `ROCQ_OF_RUST_N_ATTEMPTS` env（默认 7）。要在 corpus 调试新非确定性现象时可以临时调大。
-- **静默吞错升级**：rocq-of-rust 对不支持的构造 exit 0 但在 `.v` 文件中嵌入 `(* Unexpected ... *)` 等注释块；wrapper 第 5 道门 grep 把这类静默失败升级为非 0 exit，映射为 FAILED。第 6 道门 N-attempt 把 entry_fn silent skip（确定性的 + 非确定性的）一并捕获。
+- **静默吞错升级**：rocq-of-rust 对不支持的构造 exit 0 但在 `.v` 文件中嵌入 `(* Unexpected ... *)` 等注释块；wrapper 第 5 道门 grep 把这类静默失败升级为非 0 exit，映射为 FAILED。第 7 道门 N-attempt 把 entry_fn silent skip（确定性的 + 非确定性的）一并捕获。
 - **产物 symlink**：wrapper 成功后建 `rocq_translation/` symlink 指向 `rocq_translation_1/`，便于下游消费者（如 typecheck wrapper / 手动检查）按历史路径访问产物。
 
 ## 与 hax-lean 的可运行性对比

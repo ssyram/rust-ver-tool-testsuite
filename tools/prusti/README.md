@@ -59,7 +59,7 @@ GitHub: https://github.com/viperproject/prusti-dev
   - `thread 'rustc' panicked at prusti-interface/src/environment/mir_storage.rs`
     （部分 unsupported case 走 ICE 路径，如 closure 表达式）
 
-两个条件由 [`prusti-strict-wrapper.sh`](prusti-strict-wrapper.sh) 联合实施（2026-05-08 起）。Wrapper 在 cargo-prusti exit 0 后追加 `find target/verify/log/viper_program -name '*.vpr' | wc -l ≥ 1` 检查；0 .vpr 即 FAILED。先前实施只看 exit code，缺产物存在性 check（详见 [`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.6）。
+**前端接受路径**由 [`prusti-strict-wrapper.sh`](prusti-strict-wrapper.sh) 实施 exit 0 + `.vpr ≥ 1` 双 check（2026-05-08 起；0 .vpr 即 FAILED，详见 [`docs/fixes/oracle-leak-audit-2026-05-08.md`](../../docs/fixes/oracle-leak-audit-2026-05-08.md) §3.6）。**前端拒绝路径**上述 marker 在 prusti / cargo-prusti 实现上必伴 `exit ≠ 0`（marker 的 emit 点都在 fatal handler 里）——wrapper 不需要单独 grep marker，exit ≠ 0 已等价覆盖。Marker 在 README 列出仅为说明拒绝信号面貌，不是独立 oracle 条件。
 
 ### 形式严格性
 

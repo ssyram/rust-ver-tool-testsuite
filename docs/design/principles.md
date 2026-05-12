@@ -66,12 +66,7 @@
 
 样例源码（src/ + Cargo.toml + entry fn body）不为工具改动；工具作为黑盒，不为框架适配。异质性必然落到第三方框架。
 
-**A 的形式定义**：信号文件（`hirusttest.toml` 或 `.hirusttest/`）加入前后，example 的 cargo 行为字节级一致。
-
-**A 的双轨 schema**（工程自决）：
-
-- 简单（仅 entries + 少量字段）→ 单文件 `hirusttest.toml`
-- 复杂（需 per-entry 辅助文件或 schema 写不下）→ 目录 `.hirusttest/`
+**A 的形式定义**：信号文件（如 `hirusttest.toml` / `.hirusttest/`）加入前后，example 的 cargo 行为字节级一致。具体 schema 形态（单文件 / 目录 / 字段集）由 `detailed-design.md` 工程决定，宪法不预设。
 
 ### 原则 B：测必要条件，非语义对错
 
@@ -108,11 +103,11 @@ B 的等距推论：测"接受 vs 不接受"，不区分翻译深浅（浅 synta
 
 - **不冤枉**：SUCCESS 必须是真 SUCCESS——不允许任何 partial / silent skip / 半翻译；工具自陈"我没全干完"必须被尊重
 - **不藏**：已知漏报盲点必须文档化
-- **UNKNOWN 严格语义**：UNKNOWN 只在两类场景使用——(a) 全局工具链崩溃（重装可修），(b) 我们这边可识别的问题且暂未修（如我们 harness 模板 bug / 我们 corpus 引入的 vendored crate lint / 我们环境损坏）。每类必附明确归因 + 会修计划。**官方 wrapper 失败 / 工具自选 toolchain 不支持新特性 / 工具单文件 pipeline 不读 Cargo.toml / 官方 wrapper 不传 --edition** 一律 FAILED——这些是工具自身能力边界，按"本地性原则"FAILED 站得住，工具开发者不能驳回
+- **UNKNOWN 严格语义**：UNKNOWN 只在两类场景使用——(a) 全局工具链崩溃（重装可修），(b) 我们这边可识别的问题且暂未修（如我们 harness 模板 bug / 我们 corpus 引入的 vendored crate lint / 我们环境损坏）。每类必附明确归因 + 会修计划。**工具自身能力边界**（包括但不限于：官方 wrapper 失败 / 工具自选 toolchain 不支持新特性 / 工具单文件 pipeline 不读 Cargo.toml / 官方 wrapper 不传 --edition）一律 FAILED——按"本地性原则"FAILED 站得住，工具开发者不能驳回
 
 ### 前端测量
 
-工具能力的测量限于工具自身前端（parser / 类型检查 / 翻译 / 模型构造），求解层不计入。测必须命中工具自身前端，而非 rustc 等代理前端——否则 SUCCESS 信号退化为"rustc parses it"，丢失工具间分化。
+工具能力的测量限于工具自身前端（如 parser / 类型检查 / 翻译 / 模型构造等），求解层不计入。测必须命中工具自身前端，而非 rustc 等代理前端——否则 SUCCESS 信号退化为"rustc parses it"，丢失工具间分化。
 
 ---
 
