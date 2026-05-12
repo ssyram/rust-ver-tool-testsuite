@@ -125,6 +125,18 @@ for ((i = 1; i <= N_ATTEMPTS; i++)); do
     "$ROCQ_OF_RUST_BIN" translate --path src/lib.rs --output-path "$OUTDIR" 2>rocq_stderr.log
     rc=$?
     cat rocq_stderr.log >&2
+    # Gate 7 (R7 2026-05-12 by 不公信 / Oracle 不冤枉): rocq-of-rust emits
+    # "is not yet supported" to stderr when it silently drops constructs
+    # (e.g. Pattern::Wild on raw-ptr constants) but still exits 0 with a
+    # well-formed .v product. The stderr line is the only on-disk signal
+    # that translation was incomplete. Without this gate, the dropped
+    # construct is invisible to oracle. See D3.1 in
+    # docs/fixes/decisions-2026-05-11.md.
+    if grep -q "is not yet supported" rocq_stderr.log; then
+        echo "[rocq-oracle] FAIL (attempt $i/$N_ATTEMPTS): rocq-of-rust emitted 'is not yet supported' warning (silent partial translation; exit 0 but feature dropped from .v product)" >&2
+        rm -f rocq_stderr.log
+        exit 1
+    fi
     rm -f rocq_stderr.log
 
     if [[ $rc -ne 0 ]]; then

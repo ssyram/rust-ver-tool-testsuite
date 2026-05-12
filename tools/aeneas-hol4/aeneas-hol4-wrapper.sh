@@ -32,8 +32,28 @@ echo "[aeneas-hol4-wrapper] cwd: $(pwd)"
 
 # ── Stage 1: charon ──────────────────────────────────────────────────────────
 echo "[aeneas-hol4-wrapper] stage 1: charon cargo --preset=aeneas"
-"$CHARON_BIN" cargo --preset=aeneas
-echo "[aeneas-hol4-wrapper] charon exit: $?"
+set +e
+"$CHARON_BIN" cargo --preset=aeneas 2>charon_stderr.log
+CHARON_EXIT=$?
+set -e
+cat charon_stderr.log >&2
+
+# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉): charon may exit 0 yet emit
+# silent failure signals on stderr ("is not supported" → opaque-fied
+# construct → silent partial; "^error:" with exit 0 → charon type error not
+# propagated). See D3.2 / D3.3 in docs/fixes/decisions-2026-05-11.md.
+if [[ $CHARON_EXIT -eq 0 ]] && grep -qE "is not supported|^error:" charon_stderr.log; then
+    echo "[aeneas-hol4-oracle] FAIL: charon exited 0 but emitted partial-signal stderr ('is not supported' or '^error:'); silent degradation prevented" >&2
+    rm -f charon_stderr.log
+    exit 1
+fi
+rm -f charon_stderr.log
+
+if [[ $CHARON_EXIT -ne 0 ]]; then
+    echo "[aeneas-hol4-wrapper] charon failed: exit $CHARON_EXIT" >&2
+    exit $CHARON_EXIT
+fi
+echo "[aeneas-hol4-wrapper] charon exit: $CHARON_EXIT"
 
 # Find the produced .llbc file (charon writes <crate_name>.llbc in cwd).
 LLBC_FILE="$(ls *.llbc 2>/dev/null | head -1)"

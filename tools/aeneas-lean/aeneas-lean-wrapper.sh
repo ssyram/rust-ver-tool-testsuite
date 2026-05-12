@@ -32,8 +32,34 @@ echo "[aeneas-lean-wrapper] cwd: $(pwd)"
 
 # ── Stage 1: charon ──────────────────────────────────────────────────────────
 echo "[aeneas-lean-wrapper] stage 1: charon cargo --preset=aeneas"
-"$CHARON_BIN" cargo --preset=aeneas
-echo "[aeneas-lean-wrapper] charon exit: $?"
+set +e
+"$CHARON_BIN" cargo --preset=aeneas 2>charon_stderr.log
+CHARON_EXIT=$?
+set -e
+cat charon_stderr.log >&2
+
+# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉): charon may exit 0 yet emit
+# silent failure signals on stderr:
+#   - "is not supported" → charon dropped or opaque-fied a construct
+#     (e.g. inline asm, branching Box init) → aeneas sees degraded .llbc
+#     and produces an .lean that drops the affected entry semantics (D3.2)
+#   - "^error:" with exit 0 → charon's own type checker rejected the
+#     program but failed to propagate the exit code (D3.3, e.g.
+#     "Type error after transformations: Found incorrect clause var")
+# Both are silent partials we must surface as FAILED. See D3.2 / D3.3 in
+# docs/fixes/decisions-2026-05-11.md.
+if [[ $CHARON_EXIT -eq 0 ]] && grep -qE "is not supported|^error:" charon_stderr.log; then
+    echo "[aeneas-lean-oracle] FAIL: charon exited 0 but emitted partial-signal stderr ('is not supported' or '^error:'); silent degradation prevented" >&2
+    rm -f charon_stderr.log
+    exit 1
+fi
+rm -f charon_stderr.log
+
+if [[ $CHARON_EXIT -ne 0 ]]; then
+    echo "[aeneas-lean-wrapper] charon failed: exit $CHARON_EXIT" >&2
+    exit $CHARON_EXIT
+fi
+echo "[aeneas-lean-wrapper] charon exit: $CHARON_EXIT"
 
 # Find the produced .llbc file (charon writes <crate_name>.llbc in cwd).
 LLBC_FILE="$(ls *.llbc 2>/dev/null | head -1)"

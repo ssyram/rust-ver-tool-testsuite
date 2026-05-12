@@ -58,100 +58,58 @@ pub struct TaskResult {
 
 fn is_false(b: &bool) -> bool { !*b }
 
-/// Classify FAILED stderr/stdout against a fixed catalogue of *external* root
-/// causes — situations where the tool's own front-end never had a chance to
-/// reject the entry's Rust features, so reporting FAILED would violate the
-/// "0 误报" principle (principles.md §六 + false-positive-audit-2026-05-11.md
-/// §5). When a pattern hits, the task is re-classified as `UNKNOWN` and the
-/// returned tag is preserved in `TaskResult::error` for diagnosability.
+/// Classify FAILED stderr/stdout against the *narrowed* catalogue of UNKNOWN
+/// causes — only "our side problems" (our harness template / our corpus / our
+/// environment). All previously-classified "tool side problems" (single-file
+/// pipeline ignoring Cargo.toml deps / tool's pinned old toolchain / official
+/// wrapper not forwarding --edition) are tool capability boundaries and stay
+/// FAILED per the "本地性原则" (principles.md §一 不公信 / §六 UNKNOWN 严格
+/// 语义, 2026-05-12).
 ///
-/// Patterns are intentionally specific to avoid swallowing real tool partial
-/// signals (e.g., we require both `error[E0061]` *and* the "argument(s)"
-/// follow-up so an unrelated arity error in user source can't be misread).
-/// `None` means "no external fault recognized — keep the original FAILED".
+/// Reason: a tool that ships its own pipeline / wrapper / toolchain is making
+/// a design choice; if that choice fails on legal Rust, the tool can't
+/// reasonably defend "your test posture was wrong" — we used its own posture.
+/// Such FAILEDs carry public credibility.
+///
+/// `None` means "keep the original FAILED" (the common case).
 pub fn classify_external_fault(stderr: &str, stdout: &str, _exit: Option<i32>) -> Option<&'static str> {
-    // Some tools (notably kani) route their captured cargo build diagnostics
-    // through stdout rather than stderr; check both streams so the rules are
-    // resilient to tool-wrapper choices. We never inspect content the runner
-    // produced itself — only the child process's captured output.
     let contains_either = |needle: &str| stderr.contains(needle) || stdout.contains(needle);
 
-    // 1. runnable-corpus harness/argument mismatch fallback.
-    //    Task Y already fixes the dominant case at render time, but if a
-    //    template ever drifts back to zero-arg or a future runnable corpus
-    //    ships without a `[runnable.<entry>]` table, we still want to mark
-    //    that as runner-fault UNKNOWN rather than blame the tool.
+    // 1. runnable-corpus harness/argument mismatch — OUR harness template bug.
+    //    Task Y already fixes the dominant case at render time; this is a
+    //    defence-in-depth fallback if the template ever drifts back to zero-
+    //    arg or a future runnable corpus ships without a `[runnable.<entry>]`
+    //    table. Our problem to fix, UNKNOWN until fixed.
     if contains_either("error[E0061]") && contains_either("argument") {
         return Some("runnable_harness_arg_mismatch");
     }
-    // 2. tool pipeline doesn't run `cargo build` (single-file pipelines like
-    //    verus / verifast / soteria / rocq-of-rust) → external crates from
-    //    `extra_cargo_deps` show up as unresolved imports. The entry itself
-    //    is legal Rust (cargo-check passes); the tool just never saw the
-    //    deps. Audit §4.2 — 101 FPs.
-    //
-    //    R3 (2026-05-11): extend to also capture E0433 ("failed to resolve" /
-    //    "undeclared" / "cannot find module or crate"). Both E0432 and E0433
-    //    are dependency-resolution failures triggered when the tool's single-
-    //    file pipeline skips vendored crates declared via `extra_cargo_deps`.
-    //    cargo-check SUCCESS on the same entry is the calibration premise
-    //    (rules out user path bugs). See
-    //    docs/fixes/audit-v5-cc-counter-challenge-2026-05-11.md §3.1.2.
-    if contains_either("error[E0432]: unresolved import") {
-        return Some("dependency_resolution");
-    }
-    if contains_either("error[E0433]")
-        && (contains_either("failed to resolve")
-            || contains_either("undeclared")
-            || contains_either("cannot find module or crate"))
-    {
-        return Some("dependency_resolution");
-    }
-    // 3. tool ships an old cargo (e.g. prusti 0.1.0 → cargo from 2023-08)
-    //    that doesn't know about Rust 2024 edition. Audit §4.3 — 7 FPs.
-    if contains_either("this version of Cargo is older than the")
-        && contains_either("edition")
-    {
-        return Some("toolchain_edition_mismatch");
-    }
-    // 4. vendor crate lint level + tool-specific toolchain combination. The
-    //    `vendor/x509-parser` crate declares `#![deny(unused_qualifications)]`
-    //    and newer rustc fires the lint more aggressively. Audit §4.4 — 10
-    //    FPs (kani + hax-*). Match on the lint name *and* a vendored path so
-    //    we don't catch a user entry that legitimately writes
-    //    `unused_qualifications` somewhere.
+    // 2. vendor crate lint strictness — vendored crates we shipped in
+    //    `vendor/` declare `#![deny(unused_qualifications)]` and newer rustc
+    //    fires the lint more aggressively. Our corpus introduced the
+    //    `#![deny]`, so this is our problem to fix (either patch the
+    //    vendored crate or drop the lint denial).
     if contains_either("unused_qualifications") && contains_either("vendor/") {
         return Some("vendor_lint_strictness");
     }
-    // 5. environment corruption — historical example: prusti viper_tools jars
+    // 3. environment corruption — historical example: prusti viper_tools jars
     //    cleaned out of /tmp, leading to JNI `JavaException` on the unwrap of
-    //    Result. Generic enough to cover other JVM-class crashes that bubble
-    //    up the same way without misclassifying a real prusti partial
-    //    (prusti's own partial signals are tagged `[Prusti: unsupported …]`
-    //    or `[Prusti: internal error]`, never `JavaException`).
+    //    Result. Our environment (where we install the tool) collapsed; the
+    //    tool itself was never reached. Specific match avoids catching real
+    //    prusti partials (`[Prusti: unsupported …]` / `[Prusti: internal
+    //    error]`, never `JavaException`).
     if contains_either("Result::unwrap()") && contains_either("JavaException") {
         return Some("environment_corruption");
     }
-    // 6. rustc edition pipeline propagation. Tools that drive rustc directly
-    //    (verus / verifast / soteria / rocq-of-rust*) without forwarding
-    //    `--edition` from the entry's Cargo.toml end up running under the
-    //    default Rust 2015 edition. Entries that legitimately declare
-    //    `edition = "2021"` or `"2024"` then trip rustc's edition gate (e.g.
-    //    E0670 for `async fn`, or "let chains are only allowed in Rust 2024
-    //    or later"). cargo-check on the same entry is SUCCESS, so the entry
-    //    is legal Rust — the failure is purely the tool's pipeline dropping
-    //    the edition flag. Two-signal pattern: an edition-gated rustc error
-    //    keyword (E0670 / "let chains") AND an edition-version phrase
-    //    ("Rust 2015" / "Rust 2021" / "Rust 2024" / "only allowed"). See
-    //    docs/fixes/audit-v5-cc-counter-challenge-2026-05-11.md §3.1.1.
-    if (contains_either("E0670") || contains_either("let chains"))
-        && (contains_either("Rust 2015")
-            || contains_either("Rust 2021")
-            || contains_either("Rust 2024")
-            || contains_either("only allowed"))
-    {
-        return Some("edition_pipeline_propagation");
-    }
+    // Previously classified as UNKNOWN, now FAILED (本地性原则, 2026-05-12):
+    //   - dependency_resolution (E0432 / E0433): tool's single-file pipeline
+    //     not reading Cargo.toml is its own design choice → tool capability
+    //     boundary
+    //   - toolchain_edition_mismatch: tool's pinned old cargo not knowing
+    //     newer Rust editions is the tool's own toolchain choice → tool
+    //     capability boundary
+    //   - edition_pipeline_propagation (E0670 / "let chains"): tools driving
+    //     rustc without forwarding --edition are using their own official
+    //     wrapper → tool capability boundary
     None
 }
 
