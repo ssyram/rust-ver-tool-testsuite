@@ -1,35 +1,33 @@
-# hax-lean — 特性支持评估报告
+# hax-lean — 特性支持评估报告（v6 baseline）
 
 ## 元数据
 
-- **数据源**：`runs/run-1778491781-11043/`（2026-05-11，161 entries × hax-lean 单工具；host: Apple M5 / macOS aarch64 / 24 GB / 10 cpus，并发 10）
-  - 前一快照：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵）→ 通过率 110/146 ≈ 75.3%
-- **工具版本**：`hax untagged-git-rev-30949eb870`（commit `30949eb87058895c24f963df90dd30ef11b0dc1a`）；nightly toolchain `nightly-2025-11-08`；OCaml `hax-engine` + Rust frontend driver `driver-hax-frontend-exporter`
+- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final）
 - **工具配置**：`tools/hax-lean/`（`tool.toml`、`harness.rs.tera`、`README.md`）
-- **通过率**：SUCCESS 125 / 161 ≈ **77.6%**（FAILED 36，TIMEOUT 0）
-  - corpus 从 146 → 161（+15 runnable entry：runnable 模式翻译工具仍接受 Bin / Lib，全部 SUCCESS）
-  - v1 → vN 同 oracle 下数字差异完全由 corpus 扩张 (+15 SUCCESS) 解释；新 entry_fn gate 在当前 corpus 实测 0 命中（纯理论窗口封堵）
-- **耗时分布**：本次单工具快照未重算 percentile；旧 19 工具矩阵 avg 3647 ms / median 1859 ms / p90 8957 ms / p95 15833 ms / max 26768 ms（无 entry 触达 600 s timeout）
-- **时效声明**：本快照锚定上述 run id + hax commit + nightly 工具链 + corpus，不构成长期承诺。hax 上游对 Lean printer 持续开发中（README 标 active development），新版本对 mut-ref / dyn / sentinel-body 路径的处理变化会让本快照失效。
+- **工具版本**：`hax untagged-git-rev-30949eb870`（commit `30949eb87058895c24f963df90dd30ef11b0dc1a`）；nightly toolchain `nightly-2025-11-08`；OCaml `hax-engine` + Rust frontend driver `driver-hax-frontend-exporter`
+- **本工具实测**：n=161 / SUCCESS=125 / FAILED=34 / UNKNOWN=2，通过率 **77.6%**
+- **时长分布**：avg 2662 ms / median 1401 ms / p90 6106 ms / max 15699 ms（无 entry 触达 600 s timeout）
+- **宪法 baseline**：`principles.md` v8（双根本问题 + 原则 A/B/C + Oracle 责任 + UNKNOWN 严格语义）
+- **时效声明**：本快照锚定上述 run id + hax commit + nightly 工具链 + corpus，不构成长期承诺。hax 上游对 Lean printer 持续开发中（README 标 active development），新版本对 mut-ref / dyn / sentinel-body 路径处理变化会让本快照失效。
 
-## 工具内部 pipeline + 前端边界
+## pipeline + 前端边界
 
 ```
 rustc + driver-hax-frontend-exporter
   → THIR JSON
   → hax-engine（OCaml）
   → phase pipeline（reject phases + 改写 passes）
-  → Lean Printer（OCaml→Lean 4 文本生成）
+  → Lean Printer（OCaml → Lean 4 文本生成）
   → 写出 <work>/proofs/lean/extraction/<crate>.lean
 ```
 
-本测试关心 `cargo +nightly-2025-11-08 hax -C --lib ; into lean` 这条命令的"前端通过"。**前端 / 后端切割**：hax 是纯翻译工具，没有 SMT 求解后端——pipeline 终点 `.lean` 落盘即终点。下游 Lean 编译 / Mathlib / 用户证明完全不在测试范围。
+**前端 / 后端切割**：hax-lean 是纯翻译工具，pipeline 终点是 `.lean` 文件落盘。下游 Lean 编译 / Mathlib / 用户证明完全不在测试范围。本测试关心 `cargo +nightly-2025-11-08 hax -C --lib ';' into lean` 这条命令的"前端通过"。
 
-`-C --lib ;` 参数语义：把 `--lib` 限制传给底层 cargo（跳过 runner 注入的 `src/bin/__ts_harness.rs` 这层 harness），`;` 是 hax 自己的 cargo-args 终结符。`entry_mode = "bin"`（默认）+ `-C --lib` 配合，使 harness bin 与 hax 翻译互不干扰：harness 仅用于 cargo-check 类工具的 entry-fn 引用，hax 不读它。
+**项目维护边界**：`tool.toml` 的 oracle 段（sh -c 内联脚本）是我们维护的产物级 grep gate（双重：term-position sorry + entry_fn 存在性）。除此之外的工具内部 pipeline 全部是上游 hax 的。`-C --lib ;` 让 cargo 只翻 lib，跳过 runner 注入的 `src/bin/__ts_harness.rs` harness——`entry_mode = "bin"` 与 `-C --lib` 配合使 harness bin 与 hax 翻译互不干扰。
 
 ## SUCCESS 信号 + 形式严格性
 
-**判定式**（`tool.toml` oracle，2026-05-11 P17 D1 加 entry_fn gate）：
+**判定式**：
 
 ```
 SUCCESS ⟺ cargo hax exit 0
@@ -37,54 +35,42 @@ SUCCESS ⟺ cargo hax exit 0
         ∧ entry_fn 在产物中存在 `def <fn>` / `opaque <fn>` 定义
 ```
 
-term-position sorry 的精准 grep：先 `awk '{ sub(/--.*/, ""); print }'` 剥行注释，再 `grep -E '(:=|pure|mk|,)\s*sorry\b|\bsorry\s*[,)\]]'` 抓 `:= sorry` / `pure sorry` / `mk sorry` / `, sorry` / `sorry,)` 等位置——不抓 binder 位置（用户合法 `let sorry : i32 := 5;` 不触发）。
+**主信号通路**：`cargo hax` exit code。
+- exit 1 = engine emit `FromEngine::Diagnostic`（带 `[HAX####]` 错误码 + GitHub issue 链接）→ FAILED
 
-entry_fn 存在性 grep：`^(def|opaque)[[:space:]]+$TS_ENTRY_FN([[:space:]]|\()` —— hax-lean 对 fn item 统一渲染为 `def <name> (` / `opaque <name> (`（`rust-engine/src/backends/lean.rs:1472`，`ItemKind::Fn` 单一入口），在 `namespace <crate>` 内顶格无缩进；mutual rec / `ResugaredItemKind::RecursiveFn` / `ResugaredItemKind::Constant` 同样走 `def <name>`（`lean.rs:1919/1944-1955`）。合法翻译的 entry_fn 必命中此 grep。
+**wrapper 补抓通路（项目维护，按宪法 §六-2 不允许 partial 派生）**：
 
-**三轨 partial 暴露机制**：
-1. **官方信号**：cargo hax exit 1 = engine emit `FromEngine::Diagnostic`（带 `[HAX####]` 错误码 + GitHub issue 链接）
-2. **silent sentinel path**：`rust-engine/src/backends/lean.rs:1287, 2163` 的 `PatKind::Error` / `error_node` 路径直接 emit `text!("sorry")`，**不发 Diagnostic**——cargo hax 仍 exit 0 但产物含 term-position sorry → oracle grep 抓
-3. **silent skip-item path**（P17 D1 新封堵）：`rust-engine/src/backends/lean.rs:1521 ItemKind::RustModule | ItemKind::Use { .. } => nil!()` 把 `Use` 类型 item 渲染为空 document，**既不写定义也不发 Diagnostic**，cargo hax exit 0。fn item 本身走 `ItemKind::Fn` 必经 `def <name>`/`opaque <name>`（lean.rs:1472），但理论窗口：hax phases 可能把 fn 重写为 Use kind（与 hax-fstar `fstar_backend.ml:1771 Use _ | NotImplementedYet -> []` / hax-coq `coq_backend.ml:588 item'_NotImplementedYet` 同形态）→ 新 entry_fn 存在性 grep 抓
+1. **silent sentinel path 抓**：`rust-engine/src/backends/lean.rs:1287, 2163` 的 `PatKind::Error` / `error_node` 路径直接 emit `text!("sorry")` 但**不发 Diagnostic**——cargo hax 仍 exit 0。oracle 先 `awk '{ sub(/--.*/, ""); print }'` 剥 Lean `--` 行注释，再 `grep -E '(:=|pure|mk|,)\s*sorry\b|\bsorry\s*[,)\]]'` 抓 term-position sorry——不抓 binder 位置（用户合法 `let sorry : i32 := 5;` 不触发）。
+2. **silent skip-item path 抓**（P17 D1 加 gate）：`rust-engine/src/backends/lean.rs:1521 ItemKind::RustModule | ItemKind::Use { .. } => nil!()` 把 `Use` 类型 item 渲染为空 document。oracle grep `^(def|opaque)\s+$TS_ENTRY_FN(\s|\()` 验证 entry_fn 真有定义体——`ItemKind::Fn` 必经 `def <name>` / `opaque <name>`（lean.rs:1472）。
 
 **形式严格性**：
-- **0 误报**：⚠️ 实测验证，不可形式证明。
-  - sorry grep：用户合法 `let sorry: i32 = 5;` 与 doc comment 含 `sorry` 字面字符串都不触发——但理论上无法形式排除未来上游改动引入新合法语法
-  - entry_fn grep：实测 6 个真 SUCCESS entry（`hello/basic-hello/hello` / `enum/data-variants/enum_match_data` / `arc/clone-drop/arc_clone_drop` / `bigint/bigint-arith/bigint_arith` / `bigint/bigint-bitwise/bigint_bitwise` / `creusot-limit/mutual-recursion/trigger_is_even`）全部命中 → 无 false-positive
-- **0 漏报**：✅ 与 hax-fstar / hax-coq 对等。silent sentinel path（sorry）与 silent skip-item path（Use/nil）两条已知路径均封堵（详见 `docs/fixes/hax-lean-silent-skip-fix-2026-05-11.md`）。上游可能引入第三条新 silent path 而 grep 滞后——理论残余风险。
-- **漏报盲点**：
-  - hax engine 在未来版本引入新的 silent-skip path 而本测试 grep 滞后
-  - lean.rs:1521 实测在当前 corpus 0 命中（与 hax-fstar / hax-coq 同等理论窗口）
 
-## 实测结果
+- **0 误报**：⚠️ 实测验证，**不可形式证明**。
+  - sorry grep：用户合法 `let sorry: i32 = 5;` 与 doc comment 含 `sorry` 字面字符串都不触发；本 corpus 内多个 SUCCESS entry（hello / enum / arc / bigint / creusot-limit/mutual-recursion）均通过 → 当前 corpus 0 false-positive。
+  - 但理论上无法形式排除未来 hax 输出引入新合法语法触发误命中。
+- **0 漏报**：⚠️ 实测验证，**不可形式证明**。
+  - 两条已知 silent path（sentinel sorry / skip-item Use）均封堵。
+  - **漏报盲点**：
+    - hax engine 完全 skip item（既不写 sorry / 既不发 Diagnostic / item 不出现）——oracle 抓不到，需对应性脚本暴露；本 corpus 当前 0 现象。
+    - 上游未来引入第三条新 silent path 而本 oracle grep 滞后——理论残余风险。
+    - 上游 PR #1672 合并后 lean.rs 的 sorry path 应消失，届时 sorry grep 自然失效（无害）。
 
-### 按 feature 类目分布
+宪法 §六 "不藏" 落地：以上盲点未隐瞒，列入本节。
 
-下列 feature 类目下 hax-lean **全部 entry 通过**（每类全 SUCCESS）：
+## 失败分桶（按 P31 §四.5 归因分类）
+
+### 桶 A：silent sentinel sorry path（oracle 触发，20 case）
+
+代表 entry：`closure/fn-fnmut/closure_fnmut` / `hax-limit/ret-mut-ref/hax_limit_ret_mut_ref` / `unsafe-ptr/raw-read/raw_ptr_read` 等。
+
+stderr 特征：
 
 ```
-arc / bigint(8/8) / box / closure-adv(3/4 见下) / collections / const / deps-complex(7/7)
-drop / enum / error / float(10/10) / generic / hello / impl-trait / int / int-width(14/14)
-iter / panic / prusti-limit(7/8) / rc / slice / vec
+[hax-lean-oracle] FAIL: silent partial — sorry in term position
+(lean.rs:1287/2163 PatKind::Error / error_node path)
 ```
 
-**部分通过**（数字为 S/总）：`aeneas-limit` 5/8、`charon-limit` 4/7、`closure-adv` 3/4、`concurrency` 1/2、`creusot-limit` 5/7、`hax-limit` 4/8、`industrial` 4/6、`kani-limit` 5/7、`lifetime` 1/3、`miri-limit` 5/7、`prusti-limit` 7/8、`repr` 1/2、`trait-obj` 1/2、`unsafe-adv` 1/3。
-
-**全 FAILED**：`assoc-type`(0/1)、`closure`(0/2)、`gat`(0/1)、`hrtb`(0/1)、`refcell`(0/1)、`trait`(0/1)、`unsafe-ptr`(0/2)。样本量都很小（≤2）。
-
-### 失败模式归类（基于 raw stderr）
-
-vN（P17 D1 + corpus 161） 36 个 FAILED 按 raw stderr 字面信号归类：
-
-| 类别 | 数量 | 触发信号 |
-|---|---:|---|
-| **A. silent sorry path（oracle 触发）** | 20 | cargo hax exit 0 但产物含 term-position sorry，oracle 把 rc 改写为 1 并附 `[hax-lean-oracle] FAIL: silent partial — sorry in term position (lean.rs:1287/2163 PatKind::Error / error_node path)` |
-| **A'. silent skip-item path（新 gate 触发）** | **0** | P17 D1 加 `lean.rs:1521 Use/RustModule` 路径封堵——entry_fn 不在产物时触发 `[hax-lean-oracle] FAIL: entry_fn 'X' missing from .lean products`。当前 corpus 0 现象（纯理论窗口） |
-| **B. `[HAX0001]` Lean Printer 阶段 todo** | 9-13 | `Unsupported `dyn` traits`（issue #1708）/ `Unsupported equality constraints on associated types of parent trait`（issue #1923）/ 其他 Lean Printer 内部 todo |
-| **C. `[HAX0002]` Name rendering（InlineConst / Union）** | 3 | `repr/union/repr_union`（DefIdInner kind: Union）、`creusot-limit/thread-local-ref` 与 `lifetime/thread-local`（thread_local! 宏展开的 InlineConst） |
-| **D. industrial 工业代码 lint→error** | 2 | `industrial/x509-parser/cert-parse/{x509_parse_der, x509_subject_extensions}`：vendor crate 的 `unnecessary qualification` lint 在 nightly 下被升级为 error，`error: could not compile x509-parser (lib) due to 7 previous errors`，hax-engine 没机会跑 |
-| **E. 底层 rustc / hax frontend 栈溢出** | 1 | `trait/cyclic-bound/cyclic_bound_use`：`thread 'rustc' has overflowed its stack / fatal runtime error: stack overflow / signal: 6, SIGABRT`，发生在 `driver-hax-frontend-exporter` 阶段 |
-
-**A 桶（silent sorry）的 20 条**清单（按 entry_id 字典序）：
+完整清单（按字典序）：
 
 ```
 aeneas-limit/return-inside-nested-loop/outer_break_label
@@ -109,9 +95,16 @@ unsafe-ptr/raw-ptr-const/raw_ptr_const_match
 unsafe-ptr/raw-read/raw_ptr_read
 ```
 
-这 20 条在 hax-fstar / hax-coq 上几乎都以 `[HAX0001]` / `[HAX0003]` / `[HAX0008]` 形态显式 fail 出来；hax-lean 的 Lean Printer 把对应 AST 节点替换为 sentinel `sorry` 后继续打印，cargo hax 退出 0——**不依赖产物 grep oracle 就会被冤判 SUCCESS**。这是宪法 §六-2"不允许 partial"在 hax-lean 上的具体落地：sentinel body 即工具自陈"我没全干完"，必须 → FAILED。
+**归因**：工具不支持。hax-lean 的 Lean Printer 在遇到不能完整翻译的节点时把对应 AST 替换为 sentinel `sorry` 继续打印——这些条目在 hax-fstar / hax-coq 上多以 `[HAX0001/0003/0008]` 显式 reject，hax-lean 走 silent path。按宪法 §六-2 "不允许 partial"：sentinel body 即工具自陈"我没全干完"必须 → FAILED。
+**处理**：不修。本地性原则下 FAILED 站得住，工具开发者不能驳回——oracle 把不显示的 partial 暴露出来正是宪法精神落地。
 
-**B 桶 stderr 形态稳定**，举一例（`trait-obj/dyn-dispatch/dyn_dispatch`）：
+注：`hax-limit/mut-in-assoc-type` 同时触发 prettyplease backtrace formatting panic（`prettyplease-0.2.37/src/item.rs:1225` `not implemented: ImplItem::Verbatim`）——这是 hax engine 用于诊断打印的依赖在生成错误信息时 panic 但 engine 继续执行并 emit sorry。仍归 A 桶（最终触发是 oracle sorry 抓）。
+
+### 桶 B：`[HAX0001]` Lean Printer 显式 todo / not implemented（10 case）
+
+代表 entry：`trait-obj/dyn-dispatch/dyn_dispatch`、`hrtb/for-all-lifetime/hrtb_apply`、`creusot-limit/dyn-trait-forbidden/trigger_call_dyn_display`。
+
+stderr 特征：
 
 ```
 error: [HAX0001] something is not implemented yet.
@@ -120,14 +113,96 @@ This is discussed in issue https://github.com/hacspec/hax/issues/1708.
 Note: the error was labeled with context `Lean Printer`.
 ```
 
-**C 桶**：stderr 显示 hax 在路径名渲染阶段对 `thread_local!` 宏展开的 anonymous const（`InlineConst`）和 `union { ... }` 类型项无法生成名字，落到 `[HAX0002]` Name rendering 路径。
+完整清单：
 
-## 与本次测试边界的关系
+```
+aeneas-limit/fnmut-closure-unit-return/trigger_fnmut_unit_return
+charon-limit/generic-to-dyn-unsize/boxed_display_from_u32
+concurrency/thread-mutex/thread_mutex_join
+creusot-limit/dyn-trait-forbidden/trigger_call_dyn_display
+hrtb/for-all-lifetime/hrtb_apply
+kani-limit/stack-unwinding/trigger_divide_with_recovery
+lifetime/static-bound/static_bound
+miri-limit/thread-interleaving-partial/unsynchronised_counter_race
+prusti-limit/spec-entailment-unsupported/trigger_spec_entailment_unsupported
+trait-obj/dyn-dispatch/dyn_dispatch
+```
 
-- 测试切割点：`.lean` 文件落盘 + cargo hax exit 0 + oracle 产物 grep 不命中 → SUCCESS。**未触达**：生成 `.lean` 是否 Lean 可编译、是否需要 hax Lean prelude（`hax/proof-libs/lean/`）、Mathlib 引入与否——这些超出本测试范围。
-- A 桶（silent sorry path）20 条在 oracle 不抓产物的旧版本配置下会齐刷刷 SUCCESS，把整体通过率从 75% 拉高到约 89%。这是宪法 §六-2 的核心约束实例：partial 翻译以 sentinel body 落盘的形态被精确切除。
-- 三 hax backend 的 `hax-limit/*` 表现差异最显著：本矩阵下 hax-lean 4/8（fstar 2/8，coq 0/8）。原因可读：`hax-limit/*` 是 hax 项目自声明限制集，多条触发 mut-ref / closure-mutates-outer / mut-arg-pattern 等族——hax-fstar / hax-coq 在 phase 阶段以 `[HAX0003]/[HAX0008]/[HAX0011]` 显式 reject，hax-lean 的 Lean Printer 把这些 AST 节点替换为 `sorry` 继续打印，oracle 才把它们打回 FAILED。
+**归因**：工具不支持（hax-lean Lean Printer 内 todo 路径，工具上游显式 reject + 链接 GitHub issue）。
+**处理**：不修。FAILED 站得住。
 
-## 历史快照声明
+### 桶 C：`[HAX0002]` Name rendering / engine fatal（3 case）
 
-本报告所有数字基于 `runs/run-1778226613-5282`（2026-05-08）+ hax `30949eb8` + nightly-2025-11-08 + opam hax-engine。如 hax 合并上游 PR #1672（消除 lean.rs sentinel sorry path），oracle 仍正确——届时 silent path 自然消失，A 桶 20 条会以 `[HAX0001]` 形态落到 B 桶（或被 backend 真正接受），通过率结构相应改变。
+stderr 特征：
+
+```
+error: [HAX0002] Fatal error: something we considered as impossible occurred!
+Please report this by submitting an issue on GitHub!
+```
+
+清单：
+
+```
+creusot-limit/thread-local-ref/read_thread_local      （thread_local! 宏展开的 InlineConst）
+lifetime/thread-local/thread_local_read               （thread_local! 宏展开的 InlineConst）
+repr/union/repr_union                                 （DefIdInner kind: Union）
+```
+
+**归因**：工具不支持。hax engine 在路径名渲染阶段对 `thread_local!` 宏展开的 anonymous const（`InlineConst`）与 `union { ... }` 类型项无法生成名字，落到 `[HAX0002]` Name rendering 路径——这是 hax 自陈的内部"impossible"状态。
+**处理**：不修。FAILED 站得住。
+
+### 桶 E：底层 rustc / hax frontend 栈溢出（1 case）
+
+清单：
+
+```
+trait/cyclic-bound/cyclic_bound_use
+```
+
+stderr 特征：
+
+```
+thread 'rustc' has overflowed its stack
+fatal runtime error: stack overflow, aborting
+error: could not compile `trait_cyclic_bound` (lib)
+process didn't exit successfully: driver-hax-frontend-exporter ... (signal: 6, SIGABRT)
+```
+
+**归因**：工具不支持。栈溢出发生在 `driver-hax-frontend-exporter` 阶段（hax 前端 driver，对 cyclic trait bound 处理时栈递归）——属工具自身前端 crash，不是 rustc 通用栈溢出 / 不是我们环境损坏。
+**处理**：不修。工具前端 crash → FAILED 站得住。
+
+### UNKNOWN：vendored crate lint strictness（2 case）
+
+清单：
+
+```
+industrial/x509-parser/cert-parse/x509_parse_der
+industrial/x509-parser/cert-parse/x509_subject_extensions
+```
+
+stderr 特征：
+
+```
+error: unnecessary qualification
+error: unnecessary qualification
+...
+```
+
+**归因**：**我们 corpus / 配置 bug**。`vendor/x509-parser` 是项目引入的 vendored crate，nightly toolchain 把它的 `unnecessary qualification` lint 升级为 error，driver-hax-frontend-exporter 在 cargo check 阶段就 fail 出来——hax engine 没机会跑。这是 §六 (b) 类 UNKNOWN（"我们这边可识别的问题且暂未修：我们引入的 vendored crate 触发 lint"），oracle 记 `error: 'external_fault: vendor_lint_strictness'`、exit 101。
+**处理**：**修**。属"我们导致"。具体方案见下方修订建议。
+
+## v5.1 → v6 ΔS 解释
+
+v5.1（`runs/run-1778491781-11043`，2026-05-11）SUCCESS=125 / 161 = 77.6%；v6（本快照）SUCCESS=125 / 161 = 77.6%，**ΔS = 0**。
+
+桶级变化：v5.1 报告把 vendored x509 两条计入 D 桶（"我们 corpus 引入的 vendored crate lint→error"）作 FAILED；v6 oracle 把这两条以 (b) 类 UNKNOWN 标出（external_fault: vendor_lint_strictness），SUCCESS 数不动，FAILED 36 → 34，UNKNOWN 0 → 2。这是分类合理化、非通过率变化。
+
+## 修订建议清单（仅"我们导致"失败）
+
+| # | 桶 | 涉及 case | 修复方案 | 优先级 |
+|---|---|---|---|---|
+| 1 | UNKNOWN：vendor x509 lint→error | 2 | 给 `vendor/x509-parser` 加 `#![allow(unused_qualifications)]` lib attr，或在 hirusttest 配置里为这两 entry 注入 `RUSTFLAGS=-A unused-qualifications` / `cap-lints=warn`；属"我们引入的 vendored crate 触发新 toolchain lint"的 (b) 类，可治源 | 中 |
+
+桶 A / B / C / E 共 34 case 均为**工具不支持 / 工具自身 crash**，按"本地性 + 工具能力边界"原则不修，FAILED 站得住，不在修订范围。
+
+**"我们导致"项总数：1（影响 2 entry）**。所有其他 FAILED 均为工具能力边界，不修。

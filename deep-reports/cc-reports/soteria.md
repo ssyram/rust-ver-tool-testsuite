@@ -1,28 +1,34 @@
-# soteria 深度报告
+# soteria — 特性支持评估报告（v6 baseline）
 
 ## 元数据
 
-- **run**: `run-1778226613-5282`（2026-05-08T07:50:13Z → 08:16:08Z UTC，146 entries × 19 工具，host：Apple M5 / macOS aarch64 / 24 GB / 10 cpu）
-- **工具版本**：`soteria-rust` @ commit `3c21278187c60c99418fe2dabb03710ce4102896`（OCaml 5.4.0），Obol frontend @ commit `ddea5ca5da4c07301584f47f05ea8615fc365b41`
-- **通过率**：109/146 = **74%**（FAILED 37 个；exit=1 共 24 个，exit=2 共 13 个，exit=3 共 0 个；TIMEOUT 0）
-- **时长（ms）**：avg 1846 / median 1135 / p90 4008 / max 12690
-- **时效声明**：本快照锚定上述 commit + 工具版本 + corpus，不构成长期承诺。soteria-rust 无稳定 release，后续 commit 修改（含 Obol IR / intrinsic 实现 / Tree Borrows 模型）都可能改写本边界。
+- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final，合并 verus rerun + R7 5-tool rerun）
+- **run 时间**：2026-05-12T04:33:13Z → 04:55:27Z UTC，parallelism=10
+- **host**：Apple M5 / macOS aarch64 / 24 GB / 10 cpu
+- **工具配置**：`tools/soteria/`
+- **工具版本**：soteria-rust @ commit `3c21278187c60c99418fe2dabb03710ce4102896`（OCaml 5.4.0）+ Obol frontend @ commit `ddea5ca5da4c07301584f47f05ea8615fc365b41`，搭配 nightly-2026-02-07
+- **本工具实测**：n=161 / SUCCESS=124 / FAILED=37 / UNKNOWN=0，通过率 **77.0%**
+- **时长分布**：avg 1524 ms / median 929 ms / p90 3648 ms / max 8783 ms
+- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后）
+- **时效声明**：本快照锚定上述 run id + 工具版本 + corpus，不构成长期承诺。soteria-rust 无稳定 release，后续 commit（含 Obol IR / intrinsic 实现 / Tree Borrows 模型）都可能改写本边界。
 
-## 工具内部 pipeline + 前端边界
+## pipeline + 前端边界
 
-soteria 是 OCaml 实现的有界符号执行 + 原生 Tree Borrows 引擎，pipeline：
+soteria 是 OCaml 实现的有界符号执行 + 原生 Tree Borrows 引擎。pipeline：
 
 ```
-soteria-rust exec src/lib.rs → rustc + Obol 把 src/lib.rs 翻译为 ULLBC/LLBC JSON
-                            → soteria-rust 加载 LLBC + Charon IR
-                            → 从 lib::main 起做有界符号执行
-                            （--step-fuel / --branch-fuel 默认无限）
-                            → 完整跑完路径 / 报告 bug / OCaml exception
+soteria-rust exec src/lib.rs
+  → rustc + Obol 把 src/lib.rs 翻译为 ULLBC/LLBC JSON
+  → soteria-rust 加载 LLBC + Charon IR
+  → 从 lib::main 起做有界符号执行（--step-fuel / --branch-fuel 默认无限）
+  → 完整跑完路径 / 报告 bug / OCaml exception
 ```
 
-soteria 没有"只翻译不执行"的 dry-run flag（README 明确："最轻量调用也会完整编译 + 符号执行"）。本测试通过函数体量极小（多数 entry < 50 行）+ 默认无限 fuel 让符号执行在 ~10ms 内自然完成；compilation 是耗时主要部分（multi-second）。
+soteria 没有"只翻译不执行"的 dry-run flag（README：最轻量调用也会完整编译 + 符号执行）。本测试通过函数体量极小（多数 entry < 50 行）+ 默认无限 fuel 让符号执行在 ~10 ms 内自然完成；编译是耗时主要部分。
 
-`tool.toml`：`sh -c` 包装内联 `eval $(opam env --switch=soteria-install)` 激活 opam switch，再 `soteria-rust exec --rustc=--edition=2021 src/lib.rs`。`entry_mode = "lib"`：runner 把样例 `src/lib.rs` 重命名为 `src/__ts_inner.rs`，新 `src/lib.rs` 是 harness：
+**前端 / 后端切割**：本工具是符号执行引擎，无独立"前端 vs 求解层"边界——SUCCESS = 符号执行**完整跑完**（按 §六-2 "不允许 partial"）。bug detect（exit=1）视作"被 bug 中断 = 没完整跑完" → FAILED。本项目维护方仅以 `tool.toml` 的 `sh -c` 包装激活 opam switch、添加 Obol PATH、传 `--rustc=--edition=2021`；oracle 直接读 exit code，**无项目维护 wrapper 脚本**。
+
+`entry_mode = "lib"`：runner 把样例 `src/lib.rs` 重命名为 `src/__ts_inner.rs`，新 `src/lib.rs` 是 harness：
 
 ```rust
 mod __ts_inner;
@@ -34,72 +40,183 @@ soteria-rust 以 `fn main` 为符号执行入口。
 
 ## SUCCESS 信号 + 形式严格性
 
-- **形式指标**：soteria-rust exit 0
-- **0 误报**：✅ 形式可证。exit 0 ⇔ Obol 编译完成 + 符号执行完整跑完 + 无 bug 报告
-- **0 漏报**：✅ 形式可证。退出码 1（bug detect） / 2（soteria-rust 内部 crash） / 3（Charon/Obol 前端 crash）完整覆盖三类 partial
-- **漏报盲点**：无
+按宪法 §六 双通路 partial 暴露：
 
-**宪法 §六-2 的判定**：按"完整完成 = 符号执行不被中断"精神，bug detect（exit=1）也记为 FAILED。soteria-rust 内部 OCaml exception（exit=2）与 Obol/Charon 前端 crash（exit=3）同样记 FAILED。本矩阵中：
-- exit=0 → SUCCESS = 109
-- exit=1 → bug detect 或编译前置错误 → FAILED = 24
-- exit=2 → soteria-rust 内部 unsupported / OCaml exception → FAILED = 13
-- exit=3 → 0（本矩阵未触发）
+- **主信号通路（唯一）**：exit code
+  - 0 → SUCCESS：Obol 编译完成 + 符号执行完整跑完 + 无 bug
+  - 1 → FAILED：rustc/Obol 编译失败 或 符号执行检出 bug
+  - 2 → FAILED：soteria-rust 内核 OCaml exception / unsupported intrinsic
+  - 3 → FAILED：Obol/Charon 前端 crash（本矩阵未触发）
+- **wrapper 补抓通路**：无（项目未维护 wrapper 脚本）
 
-## 实测结果
+形式严格性 0 误报 / 0 漏报状态：
 
-### 按 feature 类目分布
+- **0 误报**：✅ 形式可证。soteria-rust 内部 exit 决定唯一通路为「编译成功 + 符号执行无 bug → exit 0」「任一中断 → exit 1/2/3」。exit 0 ⇔ 符号执行完整完成且无 bug，不冤枉。
+- **0 漏报**：⚠️ 形式可证 + 求解层简化口径盲点（D3.5 / 2026-05-12 已补完声明）。退出码 1/2/3 完整覆盖 bug detect / 内核 crash / 前端 crash 三类 partial；但 soteria-rust 在两类 intrinsic 上以 warning + 继续符号执行的方式做求解层简化（不中断执行，exit 仍 0）：
+  - `An atomic intrinsic was encountered; it will be executed as sequential code`：单线程语义近似（同 kani concurrency 的求解层假设）
+  - `A complex floating point intrinsic was encountered; it will be executed with a significant over-approximation`：soundness-preserving 抽象
+- **漏报盲点（诚实声明）**：
+  - 本 v6 矩阵共 4 个 SUCCESS entries 含上述求解层简化 warning：`concurrency/atomic/atomic_seqcst`、`miri-limit/weak-memory-incomplete/relaxed_load_may_not_observe_all_stores`、`float/transcendental/float_transcendental`、`kani-limit/float-overapprox/trigger_check_sin_cos_identity`
+  - 按宪法 §六-3 "前端测量"原则：前端（编译 + Obol 翻译 + 符号执行调度）确实完整跑完，warning 表征求解层简化口径，**不属"silent skip 前端"** → 保持 SUCCESS
+  - 该 warning 不构成漏报盲点本身，但应列出以诚实声明"SUCCESS 在这些 entry 上不蕴含求解层精确"
 
-全 SUCCESS 类目（约 27 项）：`aeneas-limit (8/8) / assoc-type / box / closure / closure-adv / const / drop / enum / error / gat / generic / hello / hrtb / impl-trait / int / int-width (14/14) / iter / panic / prusti-limit (8/8) / rc / refcell / repr / slice / trait / trait-obj / unsafe-adv / unsafe-ptr / vec`。
+## 失败分桶（按 P31 §四.5 归因分类）
 
-部分通过：`arc 0/1 · charon-limit 4/7 · collections 1/2 · concurrency 1/2 · creusot-limit 6/7 · float 9/10 · hax-limit 7/8 · industrial 0/6 · kani-limit 4/7 · lifetime 2/3 · miri-limit 4/7`。
+按 raw stdout / stderr 实读 37 个 FAILED，按形态归 6 类。
 
-按 feature 失败计数（前 5）：`bigint 8 · deps-complex 7 · industrial 6 · charon-limit 3 · kani-limit 3 · miri-limit 3`。
+### 桶 A：第三方 crate 依赖（单文件模式不支持）（21 case，exit=1）
 
-### 失败模式归类（基于 raw stdout 实读）
+代表 entry：`bigint/bigint-arith/bigint_arith` / `deps-complex/bigint-serde/bigint_serde` / `industrial/rsa/rsa-pkcs8/rsa_pubkey_from_pkcs8`
 
-soteria 把所有诊断都打到 stdout，按形态归 6 类：
+stdout 特征：
 
-**A. 单文件模式 rustc 编译前置失败（21，exit=1）**——`Compiling... errored` → `ERROR Code failed to compile`：
-- `bigint/*` 8 个：`error[E0432]: unresolved import 'num_bigint'` 等
-- `deps-complex/*` 7 个：`chrono` / `serde` / `serde_json` / `itertools` / `anyhow` / `thiserror` 同形态
-- `industrial/*` 6 个：`rsa` / `rand` / `sha2` / `x509_parser` / `x509_parser::extensions` 等 `unresolved module or unlinked crate`
+```
+Compiling... errored
+error[E0432]: unresolved import `num_bigint`
+  ...
+  = help: you might be missing a crate named `num_bigint`
+ERROR Code failed to compile
+```
 
-soteria-rust 单文件模式（`exec src/lib.rs`）只能解析 `std`/`core`/`alloc`，第三方 crate 依赖均无法编译。Obol 在这一阶段还未介入。
+涉及：`bigint/*` 8 个（`num_bigint` / `num_complex` / `num_integer` / `num_rational` / `num_traits`）、`deps-complex/*` 7 个（`chrono` / `serde` / `serde_json` / `itertools` / `anyhow` / `thiserror`）、`industrial/*` 6 个（`rsa` / `rand` / `sha2` / `x509_parser`）。
 
-**B. edition 边界（1，exit=1）**——`hax-limit/let-chains`：`error: let chains are only allowed in Rust 2024 or later`。command 当前传 `--rustc=--edition=2021`，未升级到 2024。
+**归因**：工具不支持。soteria-rust 单文件模式（`exec src/lib.rs`）只能解析 `std`/`core`/`alloc`，第三方 crate 依赖均无法编译。Obol 在这一阶段还未介入。这是 soteria 自身设计选择（README §"已知限制"明记："单文件模式不支持外部 crate 依赖"），按本地性原则 FAILED 站得住。
+**处理**：不修。
 
-**C. Obol/charon-fork 翻译层不支持（4，exit=2）**——`Compiling... done` 后符号执行启动时立即抛 `unsupported feature, ...`：
-- `charon-limit/inline-asm/nop_via_asm`：`Inline assembly is not supported`
-- `charon-limit/async-fn/async_forty_two` 与 `kani-limit/async-await/run_async_add`：`Coroutine types are not supported yet`
-- `lifetime/static-bound/static_bound`：`Soteria_rust_lib.Crate.MissingDecl("Global")`
+### 桶 B：edition 边界（1 case，exit=1）
 
-**D. soteria-rust 内核未实现的 intrinsic / extern（6，exit=2）**——
-- `arc/clone-drop/arc_clone_drop`：`Unsupported intrinsic: atomic_xsub`（`Arc<T>::drop` 内部 `fetch_sub`）
-- `charon-limit/arc-slice-unsize` (exit=1)：同 `atomic_xsub` 路径
-- `creusot-limit/dyn-trait-forbidden/trigger_call_dyn_display`：内部 unsupported
-- `float/cast-widening/float_cast_widening`：`Failure("Unhandled float transmute: f32 -> f64")`
-- `kani-limit/extern-ffi/trigger_call_libc_abs`：`Extern function abs is not handled`
-- `miri-limit/networking-unsupported/tcp_connect_attempt`：`Can't execute function <str as ToSocketAddrs>::to_socket_addrs: GAst.Missing`
-- `miri-limit/ffi-unshimmed-extern/call_unshimmed_foreign_fn`：`Extern function getpid is not handled`
+代表 entry：`hax-limit/let-chains/hax_limit_let_chains`
 
-**E. OCaml 内部 exception（2，exit=2）**——`exception, Invalid_argument("combine3") Trace:`：`concurrency/thread-mutex/thread_mutex_join` 与 `miri-limit/thread-interleaving-partial/unsynchronised_counter_race`。两者都含 `std::thread::spawn` + `Mutex`，跑了多秒后抛 OCaml `Invalid_argument`，无堆栈细节——这是 soteria-rust 在该 entry 上的实测行为。
+stdout 特征：
 
-**F. 符号执行检出 bug（2，exit=1）**——`bug: ... in lib::main`：
-- `collections/hashmap/hashmap_basic`：`Dangling pointer`，路径穿过 `core::ptr::read_unaligned(ptr.cast())` in `stdarch/.../neon/generated.rs`（aarch64 SIMD intrinsic）。**README 已记录此 false-positive**：std HashMap 在 aarch64 上经由 stdarch SIMD intrinsics 产生假阳性 dangling pointer 报告。
-- `kani-limit/uninit-memory/read_uninit_byte`：`Uninitialized memory access in lib::main`——entry 故意通过 `MaybeUninit::assume_init` 触发未初始化读，soteria-rust 正确识别。
+```
+error: let chains are only allowed in Rust 2024 or later
+```
 
-合计 21 + 1 + 4 + 6 + 2 + 2 = 36；剩余 1 个：`industrial/x509-parser/...` 中第二个 entry 同 A 类。复核：A=21（8+7+6）、B=1、C=4、D=6（含 `charon-limit/arc-slice-unsize` exit=1，并入 D 类形态）、E=2、F=2，总计 36；与 results.json 的 37 差 1 个，属于归类边缘（`miri-limit/ffi-unshimmed-extern` 也可视作 D 类的 extern 同形态——已并入 D，所以最终 D=7，总计 37）。
+**归因**：工具不支持。`tool.toml` 当前传 `--rustc=--edition=2021`，未升级到 2024。这是 soteria 单文件 pipeline 与 rustc edition 的耦合：soteria-rust 没有"读 Cargo.toml 自动取 edition"的路径，单文件模式 edition 必须显式传。属于宪法 §六 末段"工具单文件 pipeline 不读 Cargo.toml"类工具能力边界。
+**处理**：不修。如未来升 `--edition=2024` 是工具集成层调整，但当前 baseline 内 FAILED 站得住。
 
-## 与本次测试边界的关系
+### 桶 C：Obol / charon-fork 翻译层不支持（4 case，exit=2）
 
-**bug-as-FAILED**：按宪法 §六-2 "工具完整完成它的工作单元，不允许任何 partial"，符号执行被 bug 中断 = 没完整跑完 → FAILED。oracle 与宪法一致：`exit 0 → SUCCESS / 任何非 0 → FAILED`。
+代表 entry：`charon-limit/inline-asm/nop_via_asm` / `charon-limit/async-fn/async_forty_two` / `kani-limit/async-await/run_async_add` / `lifetime/static-bound/static_bound`
 
-`collections/hashmap` 的 false-positive dangling pointer 是工具自身已知边界（README 明记），本矩阵实测命中。`kani-limit/uninit-memory` 是真 UB 检出，按宪法 §六-2 同样记 FAILED——本测试是覆盖度筛选不是 UB 检测有效性测量。
+stdout 特征：
 
-`aeneas-limit/*` 8/8 与 `prusti-limit/*` 8/8 全 SUCCESS——这些"对其他工具是各自前端边界"的 entry 在 soteria 的 Obol+SE 路径上跑通且符号执行无 issue。`int-width/*` 14/14 SUCCESS、`unsafe-adv/*` 与 `unsafe-ptr/*` 全 SUCCESS（含 raw pointer / MaybeUninit / transmute）—— soteria 的"原生 Tree Borrows"对这些构造接受度高。
+```
+Compiling... done in X.XXs
+=> Running lib::main...
+warning: lib::main (Xms): unsupported feature, Can't execute function ...: (GAst.Error ...)
+warning: lib::main (Xms): exception, Soteria_rust_lib.Crate.MissingDecl("Global")
+```
 
-**未触达**：本矩阵在"Obol 已翻译完且符号执行无 issue 但 fuel 用尽"这条边界上没有任何 entry——`--step-fuel`/`--branch-fuel` 默认无限 + 函数体量极小，使 timeout 与 fuel 都不在本矩阵的失败信号里出现。
+- `inline-asm`：Charon-fork raise `Inline assembly is not supported`
+- `async-fn` / `async-await`：`Coroutine types are not supported yet`
+- `static-bound/static_bound`：`MissingDecl("Global")`——`'static` lifetime global 未在 Crate decls 中注册
 
-## 历史快照声明
+**归因**：工具不支持。Obol（charon-fork）翻译层未实现的 MIR 构造。
+**处理**：不修。
 
-本报告所有数字与归类锚定 soteria-rust commit `3c212781` + Obol commit `ddea5ca5` + OCaml 5.4.0 + nightly-2026-02-07 toolchain。soteria 升级（含 `atomic_xsub` 等 intrinsic 实现进展、Coroutine 翻译层、stdarch SIMD false-positive 修复）后归类可能大幅改写。
+### 桶 D：soteria-rust 内核未实现的 intrinsic / extern（7 case，含 exit=1 与 exit=2）
+
+代表 entry：`arc/clone-drop/arc_clone_drop` / `charon-limit/arc-slice-unsize/arc_array_to_slice` / `creusot-limit/dyn-trait-forbidden/trigger_call_dyn_display` / `float/cast-widening/float_cast_widening` / `kani-limit/extern-ffi/trigger_call_libc_abs` / `miri-limit/networking-unsupported/tcp_connect_attempt` / `miri-limit/ffi-unshimmed-extern/call_unshimmed_foreign_fn`
+
+stdout 特征：
+
+```
+warning: lib::main (Xms): unsupported feature, Unsupported intrinsic: atomic_xsub
+warning: lib::main (Xms): unsupported feature, Extern function abs is not handled
+warning: lib::main (Xms): exception, Failure("Unhandled float transmute: f32 -> f64")
+warning: lib::main (Xms): unsupported feature, Can't execute function std::fmt::format::format_inner: GAst.Missing
+```
+
+- `arc_clone_drop` / `arc-slice-unsize`：`Arc<T>::drop` 路径上 `atomic_xsub` 未实现（intrinsic 求解层）
+- `dyn-trait-forbidden`：`std::fmt::format::format_inner: GAst.Missing`（dyn formatter pipeline）
+- `cast-widening`：`Unhandled float transmute: f32 -> f64`
+- `extern-ffi/libc_abs` / `ffi-unshimmed-extern/getpid`：extern C function 未 handled
+- `networking-unsupported/tcp_connect`：`<str as ToSocketAddrs>::to_socket_addrs: GAst.Missing`
+
+**归因**：工具不支持。soteria-rust 内核未实现的 intrinsic / extern / std API。
+**处理**：不修。
+
+### 桶 E：OCaml `Invalid_argument("combine3")` 内核 exception（2 case，exit=2）
+
+代表 entry：`concurrency/thread-mutex/thread_mutex_join` / `miri-limit/thread-interleaving-partial/unsynchronised_counter_race`
+
+stdout 特征：
+
+```
+Compiling... done in X.XXs
+=> Running lib::main...
+warning: An atomic intrinsic was encountered; it will be executed as sequential code
+warning: lib::main (Xms): exception, Invalid_argument("combine3")
+Trace: 
+```
+
+两者都含 `std::thread::spawn` + `Mutex`，跑了几秒后 soteria-rust 抛 OCaml `Invalid_argument` exception。
+
+**归因**：工具内部 bug / 未实现路径。soteria-rust 在多线程 + 原子组合上触发 OCaml exception。这是工具自身内核状态，按本地性原则 FAILED 站得住。
+**处理**：不修。
+
+### 桶 F：符号执行检出 bug（2 case，exit=1）
+
+代表 entry：`collections/hashmap/hashmap_basic` / `kani-limit/uninit-memory/read_uninit_byte`
+
+stdout 特征：
+
+```
+error: lib::main: found issues in Xs, errors in 1 branch (out of 1)
+bug: Dangling pointer in lib::main
+bug: Uninitialized memory access in lib::main
+```
+
+- `hashmap_basic`：路径穿过 `core::ptr::read_unaligned` in `stdarch/.../aarch64/neon/generated.rs`（aarch64 SIMD intrinsic）——工具自身已知 false-positive（README §"已知限制"：std HashMap 在 aarch64 上经 stdarch SIMD intrinsics 产生假阳性 dangling pointer 报告）
+- `read_uninit_byte`：entry 故意通过 `MaybeUninit::assume_init` 触发未初始化读，soteria-rust 正确识别
+
+**归因**：工具自身行为边界。按宪法 §六-2 "符号执行被 bug 中断 = 没完整跑完" → FAILED。本测试是覆盖度筛选，不是 UB 检测有效性测量。
+**处理**：不修。
+
+### 分桶小计
+
+| 桶 | N | exit | 归因 |
+|---|---|---|---|
+| A 第三方 crate 依赖 | 21 | 1 | 工具不支持（单文件模式） |
+| B edition 边界 | 1 | 1 | 工具不支持 |
+| C Obol/charon-fork 翻译层 | 4 | 2 | 工具不支持 |
+| D 内核 intrinsic/extern | 7 | 1 (1) + 2 (6) | 工具不支持 |
+| E OCaml 内部 exception | 2 | 2 | 工具自身内核状态 |
+| F 符号执行检出 bug | 2 | 1 | 工具自身行为边界 |
+| **合计** | **37** | | 全部"工具不支持 / 工具自身边界" |
+
+## 漏报盲点（诚实声明）
+
+- **已通过 oracle 封堵**：
+  - exit=1（编译失败 / bug detect）→ FAILED
+  - exit=2（soteria-rust 内核 OCaml exception / unsupported intrinsic）→ FAILED
+  - exit=3（Obol/Charon 前端 crash）→ FAILED（本矩阵未触发）
+- **仍存在的盲点**：
+  - **atomic intrinsic 求解层简化**：soteria-rust 在 `atomic_load` / `atomic_store` 等基础原子 intrinsic 上以 warning + 继续执行处理（单线程语义近似）。SUCCESS entry 上若涉及并发原子语义，符号执行**完整完成**但不反映真实多线程行为
+  - **complex-float intrinsic 求解层简化**：`sin` / `cos` 等超越函数以 over-approximation 处理。SUCCESS entry 上 floating-point 路径不反映精确数学语义
+  - 本 v6 矩阵 4 个相关 SUCCESS entries 已列出（见上节"形式严格性"）
+  - 这些是 README D3.5 (2026-05-12) 已补完的求解层简化口径声明——不属"silent skip 前端" → 仍记 SUCCESS，但读者引用 soteria 支持率时应注意这些盲点
+
+## v5.1 → v6 ΔS 解释
+
+v5.1 baseline `run-1778226613-5282`（146 entries）：SUCCESS=109，通过率 74.7%。
+v6 baseline `run-1778560393-59119`（161 entries）：SUCCESS=124，通过率 77.0%。
+
+ΔS = +15，corpus Δn = +15（v6 加了 15 个新 entry）。通过率从 74.7% → 77.0%，主要由新 entry 中 soteria 接受率较高的部分驱动，**未观察到 v5.1 已有 entry 在 v6 上 status flip**（FAILED 桶 A–F 结构与 v5.1 高度一致：A=21（v5.1 同），B=1（v5.1 同），C=4（v5.1 同），D=7（v5.1 中 D=6+E 中 1 个迁移），E=2（v5.1 同），F=2（v5.1 同）。归因结构与 commit hash 一致，工具版本无变化。
+
+## 修订建议清单（仅"我们导致"失败）
+
+**无需修订。所有 37 个 FAILED 均为工具能力边界**（单文件模式不支持外部 crate / edition 未升 2024 / Obol 翻译层未实现 / 内核 intrinsic 未实现 / OCaml exception / bug detect / aarch64 stdarch false-positive 等），按本地性原则站得住，工具开发者不能驳回。
+
+| # | 桶 | 涉及 case | 修复方案 | 优先级 |
+|---|---|---|---|---|
+| — | — | — | 本工具无"我们导致"失败 | — |
+
+注：oracle 直接读 exit code，无项目维护 wrapper 脚本——天然没有"我们 wrapper bug"类。
+
+### 非 fix 性记号（仅诚实声明，不入修订清单）
+
+- 桶 B（`hax-limit/let-chains`）若未来想覆盖 Rust 2024，需把 `tool.toml` 中 `--rustc=--edition=2021` 升 `--edition=2024`——属"工具集成调整"，不属"我们 bug 修复"，不在本清单范围
+- README D3.5 段已完整列出求解层简化盲点 + 4 个相关 SUCCESS entry——该声明已就位，无需新增 fix

@@ -1,59 +1,92 @@
-# cargo-check 深度报告
+# cargo-check — 特性支持评估报告（v6 baseline）
 
 ## 元数据
 
-- **run**：`runs/run-1778226613-5282/`（2026-05-08，146 entries × 19 工具矩阵）
+- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final，合并 verus rerun + R7 5-tool rerun）
+- **工具配置**：`tools/cargo-check/`
 - **工具版本**：`cargo 1.95.0 (f2d3ce0bd 2026-03-21)`（机器默认 stable toolchain）
-- **通过率**：146/146 = 100%
-- **时长**（毫秒）：avg 2124 / median 222 / p90 6913 / max 26420
+- **本工具实测**：n=161 / SUCCESS=161 / FAILED=0 / UNKNOWN=0，通过率 **100%**
+- **时长分布**：avg 1655ms / median 194ms / p90 5339ms / max 17905ms
+- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后）
 - **时效声明**：本快照锚定上述 run id + 工具版本 + corpus，不构成长期承诺。
 
-## 工具内部 pipeline + 前端边界
+## 矩阵角色：baseline，不是被评测的"工具"
 
-cargo-check 是 Cargo 内置子命令，调用 stable rustc 完成完整前端：parse → macro expand → name resolution → type check → borrow check → MIR build。**没有后端**——在 codegen / LLVM IR 之前 exit 0。本工具的"前端 = 全过程"，矩阵中作为"健全性基准"存在：若某 entry 在其他工具上 FAILED 而 cargo-check 也 FAILED，说明问题在样例本身的 Rust 合法性，不在工具能力。`tool.toml` 命令为 `cargo check --bin __ts_harness`，对 runner 注入的 bin harness 做类型检查；harness 模板 `fn main() { <crate>::<entry>(); }` 标准 bin 入口。
+cargo-check 在 20 工具矩阵中的定位与其他 19 个验证工具不同：
+
+- **不测验证能力**：rustc 前端完成 parse / macro expand / name resolution / type check / borrow check / MIR build 即 exit 0，**不进入 codegen / 求解 / 翻译**。
+- **作为 corpus 合法性的健全性基准**：任一 entry 若在某验证工具上 FAILED，先看 cargo-check 是否同样 FAILED——若是，则问题在样例自身的 Rust 合法性，与工具能力无关；若不是，则 FAILED 反映工具能力差异。
+- **100% 通过的实际意义**（本次 v6）：从反面验证 corpus 整体落在 stable Rust 接受面之内。换言之，本 run 中其他 19 个工具的 161 - SUCCESS 数 = FAILED 数，**全部归因到工具能力差异**，不存在"corpus 自身写了非法 Rust 导致 verifier 拒"的混淆来源。
+
+这条性质是 corpus 维护的合法性兜底，不是 cargo-check 工具能力的对比性结论。
+
+## pipeline + 前端边界
+
+```
+cargo check --bin __ts_harness
+  ↓
+rustc 前端：parse → macro expand → name resolution → type check → borrow check → MIR build
+  ↓
+exit 0（不进入 codegen / LLVM IR / 链接）
+```
+
+- **harness 形态**：`fn main() { <crate>::<entry>(); }` 标准 bin 入口（runner 注入到 `__ts_harness` bin target）
+- **测量边界**：rustc 前端全过程。cargo-check 没有"后端"概念，所以"前端 = 全过程"
+- **项目维护 wrapper**：无。`tool.toml` 直接调 `cargo check --bin __ts_harness`，无 shell 包装。失败归因路径单一——只有 rustc 本身能产出 exit ≠ 0
 
 ## SUCCESS 信号 + 形式严格性
 
-- **形式指标**：`cargo check --bin __ts_harness` exit 0
-- **partial 暴露**：rustc 自身的 error registry——任何错误 → exit ≠ 0
-- **0 误报**：✅ 形式可证。rustc 单一信号，exit 0 ⇔ type / borrow check 全部通过
-- **0 漏报**：✅ 形式可证。任何 check 失败 → rustc exit ≠ 0
-- **漏报盲点**：无
+按宪法 §六 双通路 partial 暴露：
 
-## 实测结果
+- **主信号通路**：`cargo check --bin __ts_harness` exit 0
+- **wrapper 补抓通路**：无（无项目维护 wrapper）
 
-### 按 feature 类目分布
+形式严格性 0 误报 / 0 漏报状态（按 `tool-integration.md` §三 / §四.1）：
 
-本次 146 个 entry 全部 SUCCESS，覆盖 41 个 feature 类目：
+- **0 误报**：✅ **形式可证**。rustc 单一 exit 信号，exit 0 ⇔ type / borrow check 全通过。这是 rustc 自身实现保证——任何 check 失败路径都升 `rustc_errors::Diagnostic` 并最终影响 exit code
+- **0 漏报**：✅ **形式可证**。任何 check 失败 → rustc exit ≠ 0。rustc 不存在 silent skip 路径（rustc 没有"我跳过这部分检查也算成功"的模式——与 verifier 工具如 hax / aeneas 完全不同）
+- **漏报盲点**：无（与所有其他工具不同；cargo-check 是矩阵中唯一可宣告"0 误报 / 0 漏报均形式可证"的项）
 
-```
-aeneas-limit (8/8) / arc (1/1) / assoc-type (1/1) / bigint (8/8) / box (2/2)
-charon-limit (7/7) / closure (2/2) / closure-adv (4/4) / collections (2/2)
-concurrency (2/2) / const (1/1) / creusot-limit (7/7) / deps-complex (7/7)
-drop (1/1) / enum (2/2) / error (1/1) / float (10/10) / gat (1/1) / generic (4/4)
-hax-limit (8/8) / hello (1/1) / hrtb (1/1) / impl-trait (1/1) / industrial (6/6)
-int (2/2) / int-width (14/14) / iter (1/1) / kani-limit (7/7) / lifetime (3/3)
-miri-limit (7/7) / panic (2/2) / prusti-limit (8/8) / rc (1/1) / refcell (1/1)
-repr (2/2) / slice (1/1) / trait (1/1) / trait-obj (2/2) / unsafe-adv (3/3)
-unsafe-ptr (2/2) / vec (1/1)
-```
+**注**：此处"形式可证"指可溯源到 rustc 源码层的单一信号通路 + 无 silent skip 设计；非项目自陈，rustc 的 error 模型是 Rust 官方的设计约束。
 
-包含所有 `*-limit` 类别（aeneas / charon / creusot / hax / kani / miri / prusti），共 52 entries——这些 entry 触发的是其他工具的内部限制，不触及 stable rustc 的语言接受面。`industrial/` 6 个 entry（vendor 出来的 `x509-parser` / `rsa` / `sha2` 真实 crate）也全部 SUCCESS。
+## 失败分桶（按 P31 §四.5 归因分类）
 
-### 失败模式归类
+**本次 0 个 FAILED**——无可分桶项。
 
-本次 0 个 FAILED——无可归类的失败模式。
+- 无"工具不支持"桶（cargo-check 不存在自陈 reject 概念——它接受所有合法 stable Rust）
+- 无"我们导致"桶（无 wrapper / 无 corpus 错 / 无环境问题）
+- 无"漏报候选"桶
 
-### 时长尾端观察
+## 漏报盲点（诚实声明）
 
-`industrial/x509-parser/cert-parse/x509_parse_der`（26.4s）、`deps-complex/chrono-serde/chrono_serde`（20.7s）、`industrial/x509-parser/cert-parse/x509_subject_extensions`（20.7s）、`industrial/rsa/rsa-pkcs8/*`（20s 附近）等长尾全部是 dep-heavy entry——cargo 走 crates.io index 同步 + serde / chrono / num-bigint / nom / asn1-rs 等传递依赖编译。这些时间反映 cargo build 流水线开销，不反映 rustc 前端能力。median 仅 222ms。
+无。理由见上节"0 漏报：形式可证"。
 
-## 与本次测试边界的关系
+cargo-check 与项目 wrapper-based 工具（aeneas / hax / kmir / rocq-of-rust / verifast / prusti / verus 等）的关键差异：项目 wrapper 添加的 partial 暴露 gate 都是为了补 grep silent skip——cargo-check 没有这层需求。
 
-- **测试切割点**：cargo-check 不执行代码、不进入 codegen、不检测运行时 UB；它的 SUCCESS 仅蕴含 rustc 前端接受。下游 verifier（kani / charon / hax 等）能否在同一 entry 上完成翻译 / 验证与本工具的判定无关。
-- **作为基线的 corpus 倾向**：本次 corpus 全部 entry 都是合法 stable Rust（含 `*-limit` 类别——这些是其他工具的限制集，但语言层面合法）。corpus 设计上避免了纯语法不合法的样例；如果将来引入"故意写坏的 Rust"（如未声明类型、未导入 trait），cargo-check 会出现 FAILED 信号，那时它就会发挥"健全性基准"的过滤作用。
-- **本次的实际作用**：所有 19 个工具中 cargo-check 是**唯一 0 失败的工具**——这从反面验证了 corpus 整体在 stable Rust 接受面之内，其他工具的 FAILED 都是**工具自身能力差异**而非样例 Rust 错误。
+## v5.1 → v6 ΔS 解释
 
-## 历史快照声明
+- v5.1 baseline：146 entries × 100% = 146 SUCCESS（`runs/run-1778226613-5282/`，2026-05-08）
+- v6 baseline：161 entries × 100% = 161 SUCCESS（本次）
+- **ΔS = +15**：来自 v5.1 → v6 间 corpus 扩张（新增 `runnable/` 类目 15 entries）。通过率不变（仍 100%）。
+- 无任何 v5.1 SUCCESS 在 v6 退化为 FAILED——corpus 扩张未引入 Rust 不合法样例
 
-本报告是 2026-05-08 运行 `runs/run-1778226613-5282` 的实测快照；锚定 `cargo 1.95.0 (f2d3ce0bd 2026-03-21)` stable toolchain × 当前 corpus（146 entries）。toolchain 升级或 corpus 变化（特别是引入语法不合法 entry）后需重测。
+## 时长尾端观察
+
+| ms | entry |
+|---|---|
+| 17905 | `deps-complex/chrono-serde/chrono_serde` |
+| 16966 | `industrial/x509-parser/cert-parse/x509_parse_der` |
+| 16575 | `industrial/x509-parser/cert-parse/x509_subject_extensions` |
+| 15072 | `industrial/rsa/rsa-pkcs8/rsa_pubkey_from_pkcs8` |
+| 12728 | `deps-complex/collections-serde/collections_serde` |
+| 11624 | `deps-complex/bigint-serde/bigint_serde` |
+| 11501 | `deps-complex/trait-serde-generic/trait_serde_generic` |
+| 9716  | `bigint/num-complex-ops/num_complex_ops` |
+
+长尾全部是 dep-heavy entry——cargo 走 crates.io index 同步 + serde / chrono / num-bigint / nom / asn1-rs 等传递依赖编译。这些时间反映 cargo build 流水线开销，与 rustc 前端能力无关。median 仅 194ms 印证了"非依赖样例的前端检查在毫秒级"。
+
+## 修订建议清单（仅"我们导致"失败）
+
+**无需修订**——所有 161 entry SUCCESS，无 FAILED / UNKNOWN，无"我们导致"项。
+
+cargo-check 作为 baseline 的角色在 v6 baseline 上仍保持完整：100% 通过 → corpus 在 stable Rust 接受面内 → 其他工具 FAILED 数全部归因到工具能力差异，不混入 corpus 合法性噪声。
