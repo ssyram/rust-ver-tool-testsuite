@@ -73,6 +73,23 @@ SUCCESS / FAILED 的二分初看够用：exit 0 = SUCCESS，非 0 = FAILED。
 
 三类处于不同语义维度（SUCCESS / FAILED 描述子进程结果，UNKNOWN 描述"我们这边问题或全局环境损坏"）——不破 B 在工具评判层的简洁。
 
+#### bug detect 归 SUCCESS（§四 B 派生）
+
+宪法 §四 B "测必要条件 / 非语义对错"——只问"工具能不能吃下这段代码并产出预期形状的输出"，不问产出对错。
+
+派生：当工具完整跑完前端 + 求解，且**自陈"我在 entry 代码里找到了 bug / UB / violation / counterexample"**时——这是工具最有价值的输出之一。按 §四 B 归 **SUCCESS**。FAILED 只用于"工具不能吃下这段代码"（不支持 / 自身 crash / 翻译失败 / 拒绝 partial）。
+
+适用工具（v6 corpus 中真跑完整语义检查的）：
+
+| 工具 | bug detect 信号 | wrapper 翻转 |
+|---|---|---|
+| MIRI | stderr `Undefined Behavior` 且无 `unsupported operation` | exit ≠ 0 → SUCCESS |
+| soteria | stdout `^bug:` 或 `found issues.*errors in [0-9]+ branch` 且无 `Thread panicked when extracting` | exit 1 → SUCCESS |
+| verifast | 当前 corpus 无 `//@ req/ens` 注解 → verifast 不真做 verification → 0 触发 | — |
+| kani / verus / creusot / prusti / ror | 项目设计跑前端层（`--only-codegen` / `--no-verify` / 等），不进入求解 → 0 触发 | — |
+
+这条派生与 §六 UNKNOWN 严格语义、§四 A 不可侵入、§六 当前 crate 焦点都不冲突，是 §四 B 在 v6 corpus 上的具体投影。soteria README 历史注释"按完整完成精神 bug detect = FAILED"（v3 时代立场）与 §四 B 实际冲突，已删除。
+
 ---
 
 ## 二、通用性论证

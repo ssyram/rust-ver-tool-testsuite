@@ -27,20 +27,26 @@ Soteria 是符号执行引擎；它的 pipeline：obol (Rust → ULLBC/LLBC JSON
 - **产物**：`<crate>/src/lib.rs.llbc.json`（13–30 KB LLBC JSON）+ `lib.rs.llbc.json.crate`（pretty-printed LLBC，含完整函数路径 + 类型签名）+ 可选 `cg.dot` callgraph DOT
 - **函数级对应性**：LLBC `.crate` 文件**逐字符给出函数路径 + 类型签名**——4 个翻译类工具中函数级映射最强
 
-### SUCCESS 信号（严格反映前端特性支持范围）
+### SUCCESS 信号（按 architecture §一 "bug detect 归 SUCCESS" / §四 B 派生）
 
-为了严格反映前端特性支持范围（不允许 partial / 不接受中断），**SUCCESS = soteria exit 0**（符号执行完成且无 bug）。任何中断（含 bug detect）→ FAILED。
+**SUCCESS = soteria 正常工作 + 输出有意义结果**，包含两种情况：
 
-- **partial 暴露机制**：
-  - exit 1 = 检测到 bug
-  - exit 2 = soteria-rust 内部 crash
-  - exit 3 = obol/charon 前端 crash
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。soteria exit 0 ⇔ 符号执行完成且无 bug
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。exit 1/2/3 完整覆盖 bug detect / symex crash / 前端 crash 三类 partial
+1. **exit 0** = 符号执行完成且无 bug（验证通过）
+2. **exit 1 + 工具自陈 bug detect**（stdout `bug:` header 或 `found issues in T, errors in N branch` 总结）= soteria 完整跑完符号执行 + 在 entry 代码里找到 bug —— 这是工具最有价值的输出之一，按 architecture §一 派生（§四 B "测必要条件不问语义对错"）算 SUCCESS
+
+**FAILED = soteria 没能完成工作**：
+
+- exit 1 + cargo build error / unresolved import（单文件 pipeline 不读 deps，能力边界）
+- exit 1 + `Thread panicked when extracting`（工具自身 panic）
+- exit 2 = soteria-rust 内部 crash
+- exit 3 = obol/charon 前端 crash
+
+判定由 `soteria-strict-wrapper.sh` 实施。
+
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + wrapper 双通路区分。exit 0 / exit 1 with bug-detect signature 双路 → SUCCESS；其他 exit ≠ 0 → FAILED
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测。exit 1 三分（bug-detect / cargo-build-fail / extraction-panic）+ exit 2/3 完整覆盖
 - **漏报盲点**：
-  - **atomic / complex-float intrinsic 求解层简化**（D3.5 / 2026-05-12 补完）：4 个 v5 SUCCESS entries 含 `"An atomic intrinsic was encountered; it will be executed as sequential code"` 或 `"A complex floating point intrinsic was encountered; it will be executed with a significant over-approximation"`。前者同 kani concurrency：符号执行单线程语义约束（求解层假设，前端完成）；后者是 soundness-preserving abstraction（不属 silent skip）。按宪法 §六-3 前端测量原则保持 SUCCESS；该 warning 表征求解层简化口径，不属漏报盲点；列出以诚实声明。
-
-注：按工具自身语义 bug detect 是有效输出——但按"完整完成"精神，符号执行被 bug 中断 = 没完整跑完 → FAILED。
+  - **atomic / complex-float intrinsic 求解层简化**（D3.5 / 2026-05-12 补完）：4 个 v5 SUCCESS entries 含 `"An atomic intrinsic was encountered; it will be executed as sequential code"` 或 `"A complex floating point intrinsic was encountered; it will be executed with a significant over-approximation"`。前者同 kani concurrency：符号执行单线程语义约束（求解层假设，前端完成）；后者是 soundness-preserving abstraction（不属 silent skip）。按宪法 §六 前端测量原则保持 SUCCESS；该 warning 表征求解层简化口径，列出以诚实声明。
 
 ## 安装
 

@@ -18,11 +18,19 @@
 #
 # Exit code semantics (from soteria-rust exec --help):
 #   0  = success (no bugs, no errors found)
-#   1  = failure (bug or error found — maps to FAILED)
+#   1  = failure (bug or error found — see wrapper for two-way split)
 #   2  = crash caused by soteria-rust internal (maps to FAILED)
 #   3  = crash caused by Charon frontend (maps to FAILED)
-# Only exit 0 → SUCCESS; everything else → FAILED.  This is the default runner
-# behaviour (success() == exit 0), so no special handling needed.
+#
+# P35 (2026-05-12): wrapper splits exit 1 into two categories per
+# architecture.md §一 "bug detect 归 SUCCESS"（§四 B 派生）:
+#   - exit 1 + soteria self-disclosed bug ("bug:" header / "found issues
+#     in T, errors in N branch") → rewrite to SUCCESS (tool's most valuable
+#     output — symex completed and reported real bug in entry code)
+#   - exit 1 + tool's own panic ("Thread panicked when extracting") → FAILED
+#   - exit 1 + cargo build error / unresolved import → FAILED (tool's
+#     single-file pipeline doesn't read deps — capability boundary)
+# Wrapper: tools/soteria/soteria-strict-wrapper.sh
 #
 # Fuel flags: --step-fuel=N and --branch-fuel=N bound symbolic execution depth.
 # For front-end coverage screening (this testsuite's purpose) we keep defaults
@@ -37,8 +45,9 @@
 #   - soteria-rust has no stable release; locked to commit hash above
 
 command = [
-    "sh", "-c",
-    "eval $(opam env --switch=soteria-install) && export PATH=$PATH:${TS_SOTERIA_BIN_DIR} && soteria-rust exec --rustc=--edition=2021 src/lib.rs"
+    "env",
+    "TS_SOTERIA_BIN_DIR=${TS_SOTERIA_BIN_DIR}",
+    "${TS_PROJECT_ROOT}/tools/soteria/soteria-strict-wrapper.sh"
 ]
 
 entry_mode = "lib"

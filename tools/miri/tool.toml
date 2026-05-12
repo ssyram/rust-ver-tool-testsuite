@@ -1,3 +1,18 @@
-command      = ["cargo", "+nightly", "miri", "run", "--bin", "__ts_harness"]
+# MIRI tool config.
+#
+# Invocation strategy (2026-05-12, P35):
+#   We invoke MIRI through tools/miri/miri-strict-wrapper.sh which discriminates
+#   two kinds of MIRI exit ≠ 0 outcomes per architecture.md §一 "bug detect
+#   归 SUCCESS"（§四 B 派生）:
+#     1. MIRI's own capability boundary (inline-asm / foreign fn / network in
+#        isolation) → keep FAILED
+#     2. MIRI completed interpretation + detected real UB in entry code
+#        → rewrite to SUCCESS (tool's most valuable output)
+#
+# Pre-P35 behaviour: any exit ≠ 0 → FAILED, conflating tool-can't-process with
+# tool-found-bug. The latter is bug-detect SUCCESS per §四 B "测必要条件 / 不问
+# 语义对错" — see wrapper header.
+
+command      = ["${TS_PROJECT_ROOT}/tools/miri/miri-strict-wrapper.sh"]
 timeout_secs = 300
 version_command = ["cargo", "+nightly", "miri", "--version"]

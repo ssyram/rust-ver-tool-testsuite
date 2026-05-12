@@ -12,25 +12,37 @@ MIRI（Mid-level Intermediate Representation Interpreter）由 Rust 官方维护
 
 MIRI **没有"前端 / 后端"分界**——它就是一个 MIR 解释器，工作内容就是解释执行 + UB 检测。**所以 MIRI 的"前端 = 全过程"**（与 cargo-check 同形，但比它深一层：不只类型检查，还实际执行）。
 
-按宪法 §六-2 不允许 partial（"SUCCESS = 工具完整完成它的工作单元，不允许任何 partial / silent skip / 半翻译"）："工具完成它自己的工作" = MIRI 解释执行**完整跑完且无任何中断**。具体：
+按宪法 §四 B "测必要条件 / 非语义对错"——只问"工具能不能吃下这段代码并产出预期形状的输出"。具体到 MIRI：
 
-- **算 SUCCESS**：程序正常终止退出（exit 0）—— 解释器完整跑完且无 UB / unsupported / panic
-- **算 FAILED**：任何中断（UB 检测 abort / unsupported operation / panic / rustc 编译失败）→ exit ≠ 0
+- **算 SUCCESS**（工具完成工作的两种形态）：
+  - 程序正常终止退出（exit 0）—— 解释器完整跑完且 entry 代码无 UB
+  - **解释执行完成 + MIRI 自陈在 entry 代码里检测到 UB**（stderr `Undefined Behavior` 且无 `unsupported operation`）—— MIRI 最有价值的输出，按 architecture §一 "bug detect 归 SUCCESS" / §四 B 派生
+- **算 FAILED**（工具不能吃下这段代码）：
+  - MIRI 自陈 unsupported（`unsupported operation: inline assembly is not supported` / `can't call foreign function 'X'` / `not available when isolation is enabled`）
+  - rustc 编译失败 / cargo build 失败
 
-> 注：UB 检测在某些视角下可理解为"工具有效输出"，但按宪法精神（不允许 partial = 必须完整跑完）一律 FAILED——解释执行被中断 = 没完整跑完。oracle（runner 仅按 exit code 判定）与宪法一致。
+判定由 `miri-strict-wrapper.sh` 实施（P35 新加，2026-05-12）。优先级：unsupported 路径 > UB-detect 路径 > 默认。
+
+> P35 前 oracle 一律把 exit ≠ 0 算 FAILED，把"UB 检测"和"工具不支持"混桶，与宪法 §四 B 实际冲突（§四 B 只问能不能吃下不问语义对错——bug detect 是"吃下了 + 给出预期输出"）。P35 wrapper 把两者分开。
 
 - **不产生持久化产物**：execution state 进程结束即销毁。函数级对应性概念不适用
 
-### SUCCESS 信号（严格反映前端特性支持范围）
+### SUCCESS 信号（按 architecture §一 / §四 B）
 
-为了严格反映前端特性支持范围（不允许 partial / 不接受中断），**SUCCESS = miri exit 0**（解释执行完整跑完且无 UB / unsupported operation）。任何中断 → FAILED。
+**SUCCESS = MIRI 跑完工作 + 输出有意义结果**：
 
-- **partial 暴露机制**：UB / unsupported operation / panic 任意触发 → exit ≠ 0
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。miri exit 0 ⇔ 解释执行完整跑完且无 UB / unsupported operation
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。任何 UB / unsupported / panic 触发 → miri exit ≠ 0
-- **漏报盲点**：无（miri 不存在 silent skip）
+- exit 0（正常终止 / 无 UB）
+- 或 exit ≠ 0 + `Undefined Behavior` 自陈 + 无 `unsupported operation` → wrapper 翻 SUCCESS
 
-注：UB 检测在某些视角下被理解为"工具有效输出"——但按"不允许 partial / 完整完成"精神，本测试一律 FAILED（解释执行没完整跑完）。
+**FAILED = MIRI 不能吃下这段代码**：
+
+- exit ≠ 0 + `unsupported operation` / `can't call foreign function` / `not available when isolation is enabled`
+
+形式严格性：
+
+- **0 误报（不冤枉能力）**：✅ 实测 + wrapper 双路区分。SUCCESS 两路（exit 0 / UB-detect）均反映工具真实工作完成
+- **0 漏报（不高估能力）**：✅ 实测。FAILED 三路（unsupported / 外部 fn / isolation 阻塞）完整覆盖工具能力边界
+- **漏报盲点**：无（MIRI 不存在 silent skip）
 
 ## 安装
 
