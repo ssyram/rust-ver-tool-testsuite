@@ -190,6 +190,22 @@ pub fn execute(
     // These are set AFTER env_remove so they survive into the child env.
     command_builder.env("TS_ENTRY_FN", entry);
     command_builder.env("TS_TARGET_CRATE", &crate_ident);
+
+    // Inject per-example env vars declared in hirusttest.toml `[env]` table.
+    // Used when the example needs specific runtime environment (e.g.
+    // `RUSTFLAGS=--cap-lints=warn` for entries that depend on a vendored
+    // crate whose `#![deny(...)]` would otherwise fire on the tool's
+    // (newer) rustc — a vendor-crate code-style choice that does not
+    // reflect any tool capability boundary. See principles.md §四 A: the
+    // hirusttest signal file does not change the example's cargo bytes;
+    // the runner reads this declaration and applies it externally at spawn.
+    // Applied AFTER env_remove + TS_* injection so example declarations
+    // take precedence over any prior runner-internal env; but a tool can
+    // still override at its own tool.toml command level if it needs to
+    // (no example-level env will reach into tool.toml ${VAR} expansion).
+    for (k, v) in &example.env {
+        command_builder.env(k, v);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

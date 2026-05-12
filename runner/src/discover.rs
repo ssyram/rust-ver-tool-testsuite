@@ -54,6 +54,22 @@ pub struct Example {
     /// single-file-track examples. See `schema_kind` note re. dead-code.
     #[allow(dead_code)]
     pub hirusttest_dir: Option<PathBuf>,
+    /// Per-example env vars injected by runner at subprocess spawn time.
+    /// Sourced from `[env]` table in hirusttest.toml (single-file track).
+    ///
+    /// Purpose: lets an example **declare** what runtime environment it
+    /// requires for a fair build/test (e.g., `RUSTFLAGS=--cap-lints=warn`
+    /// for entries that depend on a vendored crate whose `#![deny(...)]`
+    /// fires on newer rustc — a vendor-crate code-style choice that would
+    /// otherwise block cargo build on all cargo-pipeline tools without
+    /// reflecting any tool capability boundary).
+    ///
+    /// Aligns with principles.md §四 A: the signal file's *presence* still
+    /// does not change the example's cargo bytes — the example folder itself
+    /// (src/ + Cargo.toml) is untouched. The runner reads this declaration
+    /// and applies it externally at spawn. Aligns with §四 C: heterogeneous
+    /// per-example needs sink into declarative data, not runner code paths.
+    pub env: std::collections::HashMap<String, String>,
 }
 
 /// Common config schema shared by both tracks. v1 only reads `entries` +
@@ -73,6 +89,12 @@ struct HirusttestToml {
     /// (whose fns take arguments) instead of failing with E0061.
     #[serde(default)]
     runnable: std::collections::HashMap<String, RunnableSpec>,
+    /// Optional `[env]` table — per-example env vars injected by runner
+    /// at subprocess spawn time. See `Example::env` doc for semantics &
+    /// constitutional alignment (§四 A signal-file non-invasion + §四 C
+    /// heterogeneity sinks to declarative data).
+    #[serde(default)]
+    env: std::collections::HashMap<String, String>,
 }
 
 /// `[runnable.<entry_fn>]` section. Only `inputs` is consumed by the runner
@@ -331,6 +353,7 @@ pub fn find_examples(examples_dir: &Path) -> Result<Vec<Example>> {
             entry_args,
             schema_kind,
             hirusttest_dir,
+            env: ts.env,
         });
     }
     result.sort_by(|a, b| {

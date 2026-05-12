@@ -147,7 +147,55 @@ deep-reports/cc-reports/{aeneas-coq, aeneas-fstar, aeneas-hol4, aeneas-lean,
 
 ---
 
-## 八、关键洞察
+## 八（P33 update / 2026-05-12 晚）：vendor x509 通过 hirusttest [env] schema 治源
+
+用户提出非侵入式治源方案：给 `.hirusttest` schema 加 `[env]` 信号段，runner 见到信号在 spawn 子进程时 inject env vars。**完全符合宪法 §四 A（hirusttest 加入不改 cargo 字节级行为）+ §四 C（异质性归声明数据）**，无需修宪。
+
+### 实施
+
+1. `runner/src/discover.rs::HirusttestToml` 加 `env: HashMap<String, String>` 字段
+2. `runner/src/discover.rs::Example` 持有 env map
+3. `runner/src/exec.rs::execute` 在 TS_* strip / inject 之后遍历 example.env 逐条 inject
+4. `examples/industrial/x509-parser/cert-parse/hirusttest.toml` 加：
+   ```toml
+   [env]
+   RUSTFLAGS = "--cap-lints=warn"
+   ```
+5. 副带修：oracle `vendor_lint_strictness` 规则加 `error: could not compile` 前置门，避免 cap-lints 把 error 降 warning 后 oracle 仍误判 UNKNOWN（这条 bug 在初次重跑暴露）
+6. `docs/design/detailed-design.md` schema 描述加 `[env]` 段说明
+
+### 实测
+
+5 工具 × 2 entry = 10 task 重跑后：
+
+| 工具 | 重跑前 | 重跑后 | 解释 |
+|---|---|---|---|
+| hax-coq | UNKNOWN ×2 | **SUCCESS ×2** | cap-lints 让工具真跑通 x509，前端能处理 |
+| hax-fstar | UNKNOWN ×2 | **SUCCESS ×2** | 同 |
+| hax-lean | UNKNOWN ×2 | **SUCCESS ×2** | 同 |
+| kani | UNKNOWN ×2 | **FAILED ×2** | cargo build 通过，kani 5-markers 命中（catch_unwind / ptr_mask / foreign function）— 真实工具能力边界 |
+| aeneas-hol4 | UNKNOWN ×2 | **FAILED ×2** | 真实 HOL4 backend 能力边界 |
+
+### v6 final 状态变化
+
+- 2202 SUCCESS / 1008 FAILED / 10 UNKNOWN → **2208 / 1012 / 0**
+- 通过率 68.39% → **68.57%**
+- **UNKNOWN 数 10 → 0**：v6 全 corpus 已无任何 oracle 待定 case，每个 task 都有明确归类（SUCCESS / FAILED）
+- 信号丰富度提升：原 10 个"我们这边问题暂未修"全部解掉——6 个换成真实能力测量（SUCCESS），4 个换成真实能力边界（FAILED）
+
+### 设计精神实证
+
+`[env]` schema 是 P31 修宪后的精神延伸：
+
+- 宪法 §四 A "信号文件加入不改 cargo 字节级"——`hirusttest [env]` 是 runner 读了之后在 spawn 时 inject 的 env，cargo 自身仍读同一份 src + Cargo.toml
+- 宪法 §四 C "异质性归声明数据"——某 entry 因 vendor lint drift 需要 cap-lints 是 entry 个性化需求，沉淀到 hirusttest.toml 而非 runner if-else 分支
+- 用户原话："运行前非侵入，但是运行途中可以适当用合理的手段侵入"——准确对应
+
+未来其他场景（如某 entry 需要特定 PATH / LANG / TIMEZONE 等）都可走同一通道，schema 不需要再扩展。
+
+---
+
+## 九、关键洞察
 
 - **20 工具 / 共 1 个跨工具'我们导致'根因**：vendor x509 lint。oracle 已正确归 UNKNOWN，**不是误报**。
 - **实施层（runner + 19 个 wrappers + corpus）完全干净**：cargo-check / charon-mono/poly / miri / soteria / creusot / kmir / verus / verifast / prusti / aeneas-coq/fstar/lean / rocq-of-rust / ror-typecheck 共 15 工具 0 修订项；剩 5 工具的 1 项都是同根因。

@@ -79,6 +79,28 @@ expected = [120, 720]
 
 **Schema 向后兼容性**：`runner/src/discover.rs` 的 `HirusttestToml` 结构未设 `deny_unknown_fields`，多出的 `[runnable.*]` 表会被 serde 忽略，不破现有 142 个 hirusttest.toml。
 
+##### `[env]` 扩展段（per-example 运行时环境变量，可选）
+
+单文件轨 `hirusttest.toml` 可追加 `[env]` 表，runner 在 spawn 子进程时把表中的 key/value 全部 set 到子进程环境：
+
+```toml
+entries = ["x509_parse_der", "x509_subject_extensions"]
+
+[env]
+RUSTFLAGS = "--cap-lints=warn"
+```
+
+**用途**：当 example 依赖的 vendored crate 自带的严格 lint（如 `#![deny(unused_qualifications)]`）在更新版 rustc 下触发 error，阻塞 cargo build 但不反映任何工具能力边界时，example 可声明 `RUSTFLAGS=--cap-lints=warn` —— 这是 Linux distro packaging 标准实践（Cargo 对 crates.io 注册依赖默认就如此处理，本机制把 path-deps 拉齐）。
+
+**精神对齐**：
+
+- **§四 A 不变**：`[env]` 字段加入前后，example 的 cargo 字节级行为**仍一致**——cargo 仍读同一份 src + Cargo.toml；env vars 由 runner 在外层 spawn 时附加，cargo 本身不读 hirusttest.toml
+- **§四 C 派生**：异质性（某 example 因 vendor 依赖的 lint drift 需要 cap-lints）沉淀到声明数据（hirusttest.toml），不进 runner 代码的 if-else 分支
+
+**与 `runnable.<entry>` 的位置关系**：`[env]` 是 file-level（影响该 hirusttest.toml 下所有 entry 共享 cargo build），`[runnable.<entry>]` 是 entry-level。
+
+**实现**：`runner/src/discover.rs::HirusttestToml::env` 反序列化为 `HashMap<String, String>`；`runner/src/exec.rs::execute` 在 TS_* env-strip + TS_ENTRY_FN/TS_TARGET_CRATE 注入之后，遍历 example.env 逐条 `command_builder.env(k, v)`（即 example 声明优先于 runner-internal 默认，但 tool.toml 的 command 数组里若再次显式 set 同 key 仍以 tool.toml 为准——cargo build 自身行为不被打断）。
+
 #### 目录轨（仅外部综合项目，如 vendor/x509-parser、vendor/openssl）
 
 `<example_dir>/.hirusttest/config.toml`：

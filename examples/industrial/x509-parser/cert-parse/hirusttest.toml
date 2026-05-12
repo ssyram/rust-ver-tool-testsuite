@@ -1,1 +1,25 @@
 entries = ["x509_parse_der", "x509_subject_extensions"]
+
+# Per-example env injection (runner reads `[env]` and sets vars on subprocess
+# spawn — does NOT change cargo bytes of this example; symmetric to tool.toml's
+# extra_cargo_deps which is the tool-side declarative analogue).
+#
+# Why: vendor/x509-parser/src/lib.rs:121-123 has the upstream-author lint
+# directive `#![deny(unstable_features, unused_qualifications)]`. Newer rustc
+# (used by tools that pin their own newer toolchains: kani / hax-* / aeneas-*)
+# detects ~8 redundant `crate::` path prefixes inside that vendored crate and
+# fires unused_qualifications, which deny escalates to errors → cargo build
+# of x509-parser dependency aborts BEFORE any tool front-end sees user code.
+#
+# This is a vendor-author code-style choice, not a tool capability boundary
+# nor a corpus content problem. `--cap-lints=warn` is the standard practice
+# (Linux distro packagers, Cargo's own behavior for crates-io deps) to keep
+# upstream lint denial from blocking dependents on rustc drift — lints stay
+# visible (still in stderr) but do not abort the build.
+#
+# Tools that don't shell out to cargo (verus / verifast / soteria /
+# rocq-of-rust) are unaffected — they hit a different boundary on this entry
+# (the unresolved import of x509_parser), which is the genuine tool capability
+# edge for single-file-pipeline tools.
+[env]
+RUSTFLAGS = "--cap-lints=warn"

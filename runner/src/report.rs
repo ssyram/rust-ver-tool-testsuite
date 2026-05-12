@@ -85,10 +85,20 @@ pub fn classify_external_fault(stderr: &str, stdout: &str, _exit: Option<i32>) -
     }
     // 2. vendor crate lint strictness — vendored crates we shipped in
     //    `vendor/` declare `#![deny(unused_qualifications)]` and newer rustc
-    //    fires the lint more aggressively. Our corpus introduced the
-    //    `#![deny]`, so this is our problem to fix (either patch the
-    //    vendored crate or drop the lint denial).
-    if contains_either("unused_qualifications") && contains_either("vendor/") {
+    //    fires the lint more aggressively. Only fire when cargo actually
+    //    reports build failure due to the lint — anchor on cargo's
+    //    "error: could not compile" line. After P33 the affected entries
+    //    (industrial/x509-parser/cert-parse) declare RUSTFLAGS=--cap-lints=warn
+    //    via hirusttest [env] table, which neutralizes the lint to warnings;
+    //    cargo build then succeeds and any subsequent FAILED truly reflects
+    //    the tool's own capability edge. Without the "could not compile"
+    //    gate, this rule would mis-classify post-cap-lints true tool failures
+    //    as UNKNOWN (because the warning line still contains
+    //    "unused_qualifications" and "vendor/" literals).
+    if contains_either("error: could not compile")
+        && contains_either("unused_qualifications")
+        && contains_either("vendor/")
+    {
         return Some("vendor_lint_strictness");
     }
     // 3. environment corruption — historical example: prusti viper_tools jars
