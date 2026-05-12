@@ -123,6 +123,22 @@ P27 修宪后，宪法 §六 UNKNOWN 严格语义把"wrapper 失败"按归属切
 
 判定规则要在 oracle 设计 + README 漏报盲点段一致——某工具 wrapper 路径混合（我们包了官方）时，按"最近责任主体"切：我们包的层抛错 → UNKNOWN；官方层抛错（即使被我们 wrapper 转发）→ FAILED。
 
+### 4.6 §六 当前 crate 焦点的 oracle 投影
+
+按宪法 §六 当前 crate 焦点（宽度切割），oracle 设计应仅把 entry crate 内部的 partial 算 FAILED，外部依赖（std / cargo registry / vendor）的 partial 不计入。具体落地路径取决于工具输出格式：
+
+**路径 A：工具输出带 source path → 按 path 过滤**
+- 例：aeneas 4 backend wrapper 的 charon-stage gate（P36 落地）。charon stderr 的 `is not supported` / `^error:` signal 后跟 `--> path` 行——wrapper Python 段扫描每个 signal 后 60 行内的 `-->` 路径，按 `/rustc/` / `/cargo/registry/` / `/vendor/` 前缀分类，全 external 则 suppress。
+
+**路径 B：工具输出无 source span → 反向证明法（entry-src 关键字 grep）**
+- 例：kani-strict-wrapper.sh 的 5-markers gate（P37 落地）。kani 的 5-markers 警告只汇总 count 不带 span，无法按 path 过滤——用反向证明：grep entry crate `src/` 是否含 markers 的触发关键字（`asm!` / `simd_*` / `catch_unwind` / `::mask(` / `c"` 等），含则 entry 自用 → FAILED，不含则必来自 deps → SUCCESS。
+- 反向证明的边界：注释/字符串内的关键字会误判 FAILED（保守 false positive 方向，非漏报），通过 macro/build-script 间接引入的 markers 会误判 SUCCESS（理论漏报，需实测覆盖）。
+
+**路径 C：oracle 无法实施 §六 过滤 → README 漏报盲点诚实声明**
+- 例：单文件 pipeline 工具（verus / verifast / soteria / ror）通常根本不读 Cargo.toml deps，所以测的就是 entry crate 自己——§六 自然满足，不需要额外 filter。
+
+新增工具集成时按上面三路径之一对齐 §六，README 必含 oracle 路径 + 边界声明。
+
 ---
 
 ## 五、README 必含章节清单

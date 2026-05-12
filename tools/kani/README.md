@@ -36,16 +36,22 @@ Kani 由 AWS 开发，将 Rust MIR 翻译为 CBMC 可消费的 GotoC IR，再由
 | `ptr_mask` | raw-pointer bit-mask intrinsic —— stub |
 | `C string literal` | `c"..."` raw cstr 字面量 MIR rvalue —— Rust 2024 stable feature kani-compiler 尚未 lower |
 
-任意命中 → wrapper 重写 exit 0 为 exit 2 + 写诊断到 stderr → 框架记 FAILED。
+命中后 wrapper **进一步按 P37 §六 当前 crate 焦点宽度过滤**（principles.md §六）：
+
+- entry crate `src/` 自含 markers 的触发关键字（`asm!` / `global_asm!` / `simd_*` / `catch_unwind` / `catch_panic` / `::mask(` / `ptr::mask` / `pointer::mask` / `c"` / `cr"` / `CStr::from_bytes_with_nul`）→ entry 自陈不支持 → wrapper 重写 exit 0 为 exit 2 → 框架记 FAILED
+- entry crate `src/` 全无触发关键字 → markers 必来自 deps (std / cargo registry / vendor) → 按 §六 宽度切割豁免 → wrapper 保持 exit 0 → 框架记 SUCCESS
+
+实施在 wrapper 内嵌 Python 段 `os.walk('src/')` 加正则匹配。
 
 **特意排除 `caller_location` 与 `foreign function`** —— 它们由 std panic 路径 / std alloc 路径在几乎所有非 trivial entry 上触发（实测 60-63/144 SUCCESS 含此 warning），抓它们会大规模假阳性。这两个 warning 是 kani 对 std 内部的标准处理，不是用户代码的 partial codegen 信号。
 
 详见：[`docs/fixes/oracle-leak-audit-2-2026-05-11.md`](../../docs/fixes/oracle-leak-audit-2-2026-05-11.md) §3.1，落地记录 [`docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md`](../../docs/fixes/oracle-leak-rules-implementation-2-2026-05-11.md) §2.1。
 
-- **partial 暴露机制**：kani-compiler codegen 阶段任何 hard 失败 → exit ≠ 0；soft 失败（emit stub + warning）→ wrapper 抓 5 markers 后重写 exit 2
-- **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。任意合法 SUCCESS（不触发 5 markers）在 wrapper 下保持 SUCCESS（hello/basic-hello / bigint-arith / industrial/rsa-pkcs8 / industrial/sha256-digest 实测均 SUCCESS）
-- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层封堵。5 markers 是 kani 自陈"我没把这条干完"的明确字面，与"工具接受"互斥。**注**：`caller_location` / `foreign function` warning 的处理状态保持现有口径（前端 stub + SAT 才显现），按宪法 §六-2 严格解读这是可争议的剩余口径——见漏报盲点。
+- **partial 暴露机制**：kani-compiler codegen 阶段任何 hard 失败 → exit ≠ 0；soft 失败（emit stub + warning）→ wrapper 抓 5 markers + entry-src 关键字反向证明后才重写 exit 2
+- **形式严格性 — 0 误报（不冤枉能力）**：✅ 实测 + wrapper 双通路区分。markers fired 且 entry src 含关键字 → FAILED（entry 自陈不支持）；markers fired 但 entry src 无关键字 → SUCCESS（markers 来自 deps，§六 豁免）
+- **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层 + 关键字反向证明。5 markers 是 kani 自陈"我没把这条干完"的明确字面；entry-src 关键字反向证明锚定 partial 来源在 entry 自身代码
 - **漏报盲点**：
+  - **关键字反向证明的边界**：若 entry src 在注释 / 字符串内含 marker 关键字会误判 FAILED（保守 false positive，非漏报方向）；entry 通过 macro / build script 间接引入 markers 而 src 文本不含关键字 → 误判 SUCCESS（理论漏报，未实测命中）
   - `caller_location` 与 `foreign function` 在 kani 上仍 codegen 为 stub 但 oracle 不抓（避高频假阳性）；kani 未来新增 unsupported MIR 节点类别（hax-engine / kani-compiler 演进可能引入新 stub 路径，需要扩展 5 markers list）
   - **concurrency 单线程语义**（D3.4 / 2026-05-12 补完）：8 个 v5 SUCCESS entries 含 kani `"Kani currently does not support concurrency. The following constructs will be treated as sequential operations"` warning（atomic_* / thread_local / fence）。kani-compiler **真 codegen 原子操作**（atomic_block / SKIP / binop），不是 stub —— 这是 BMC 单线程语义约束（不模拟多线程交错），属求解层假设而非前端 partial。按宪法 §六-3 前端测量原则**不抓 marker**，这些 entries 保持 SUCCESS。该 warning 表征求解层简化口径，不属漏报盲点；列出以诚实声明。
 

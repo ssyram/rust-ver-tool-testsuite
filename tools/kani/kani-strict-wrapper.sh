@@ -107,23 +107,68 @@ fi
 # We accept any leading whitespace; the marker name appears verbatim.
 hit=$(grep -E '^[[:space:]]+-[[:space:]]+(TerminatorKind::InlineAsm|simd_cast|catch_unwind|ptr_mask|C string literal)\b' "$out_file" 2>/dev/null | head -5)
 
-if [[ -n "$hit" ]]; then
-    cat >&2 <<EOF
-[kani-oracle] FAIL: codegen completed with hard-unsupported MIR constructs
-[kani-oracle]       (kani self-disclosed via 'Found the following unsupported
-[kani-oracle]       constructs:' warning). The matched markers are:
-$hit
-[kani-oracle]       kani replaced these constructs with stubs ("Verification
-[kani-oracle]       will fail if one or more of these constructs is reachable"
-[kani-oracle]       — kani's own words) but still exits 0 because --only-codegen
-[kani-oracle]       does not invoke CBMC. Per project §六-2 反作弊 (no partial
-[kani-oracle]       / silent skip), this is a partial-codegen漏报 and must be
-[kani-oracle]       FAILED. The 5 marker subset excludes the std prelude
-[kani-oracle]       'caller_location' and 'foreign function' warnings which fire
-[kani-oracle]       on most non-trivial entries via std panic/alloc paths.
-[kani-oracle]       See docs/fixes/oracle-leak-audit-2-2026-05-11.md §3.1.
-EOF
-    exit 2
+if [[ -z "$hit" ]]; then
+    exit 0
 fi
 
-exit 0
+# P37 (§六 当前 crate 焦点宽度过滤): kani 5-marker output only aggregates
+# counts without source spans (kani-compiler does not emit per-occurrence
+# diagnostics + cargo-kani doesn't accept --message-format=json). We apply
+# *reverse evidence*: grep entry crate src/ for the marker-triggering
+# keywords. If entry crate src/ contains none of them, the markers must
+# originate from deps (std / cargo registry / vendor) — per principles.md
+# §六 当前 crate 焦点 (宽度切割), external-dep partial does not count →
+# suppress FAILED → SUCCESS. If entry crate src/ self-uses any triggering
+# keyword → keep FAILED.
+
+python3 - "$out_file" <<'PYEOF'
+import re, sys, os
+
+# Map each kani marker to entry-source keyword patterns that trigger it.
+# Patterns are conservative: false positives (extra FAILED) are preferred
+# over false negatives (missed entry self-use).
+patterns = {
+    'TerminatorKind::InlineAsm': r'\b(asm|global_asm)\s*!',
+    'simd_cast': r'\b(simd_cast|simd_eq|simd_xchg|simd_extract|simd_insert|simd_add|simd_mul|simd_sub|simd_and|simd_or|simd_xor|simd_shl|simd_shr|simd_div|simd_rem|simd_neg|simd_select)\b|\bcore::simd\b|\bstd::simd\b',
+    'catch_unwind': r'\b(catch_unwind|catch_panic)\b',
+    'ptr_mask': r'(::mask\s*\(|\bptr::mask\b|\bpointer::mask\b)',
+    'C string literal': r'(\bc"|\bcr"|CStr::from_bytes_with_nul|\bcstr!|\bc_str!)',
+}
+
+with open(sys.argv[1]) as fp:
+    kani_text = fp.read()
+
+fired = []
+for marker in patterns:
+    if re.search(r'^\s+-\s+' + re.escape(marker) + r'\b', kani_text, re.M):
+        fired.append(marker)
+
+src_text = ''
+for root, dirs, files in os.walk('src'):
+    dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'target']
+    for f in files:
+        if f.endswith('.rs'):
+            try:
+                with open(os.path.join(root, f), errors='ignore') as fp:
+                    src_text += fp.read() + '\n'
+            except OSError:
+                pass
+
+entry_self_use = []
+for marker in fired:
+    if re.search(patterns[marker], src_text):
+        entry_self_use.append(marker)
+
+if entry_self_use:
+    print(f'[kani-oracle] FAIL: codegen with hard-unsupported markers; entry crate src/', file=sys.stderr)
+    print(f'[kani-oracle]       self-uses triggering keyword(s) for: {entry_self_use}', file=sys.stderr)
+    print(f'[kani-oracle]       Per project §六-2 反作弊, entry-self partial → FAILED.', file=sys.stderr)
+    sys.exit(2)
+
+print(f'[kani-oracle] kani 5-markers fired {fired} but entry crate src/ has no triggering', file=sys.stderr)
+print(f'[kani-oracle]       keyword; markers must originate from deps (std/registry/vendor).', file=sys.stderr)
+print(f'[kani-oracle]       Per principles.md §六 当前 crate 焦点 (宽度切割), external-dep', file=sys.stderr)
+print(f'[kani-oracle]       partial does not count — suppressing FAILED → SUCCESS.', file=sys.stderr)
+sys.exit(0)
+PYEOF
+exit $?

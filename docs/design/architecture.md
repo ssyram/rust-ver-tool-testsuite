@@ -73,6 +73,16 @@ SUCCESS / FAILED 的二分初看够用：exit 0 = SUCCESS，非 0 = FAILED。
 
 三类处于不同语义维度（SUCCESS / FAILED 描述子进程结果，UNKNOWN 描述"我们这边问题或全局环境损坏"）——不破 B 在工具评判层的简洁。
 
+#### §六 当前 crate 焦点的 oracle 投影（P36 + P37 落地）
+
+宪法 §六 "当前 crate 焦点"（宽度切割）入宪后，oracle 实施层按工具输出格式分两条路径落地（详 `tool-integration.md` §四.6）：
+
+- **路径 A（输出带 source path 直接过滤）**：aeneas 4 backend wrapper 的 charon-stage gate（P36）。charon stderr 的 `is not supported` / `^error:` signal 后跟 `--> path` 行——按路径前缀 `/rustc/` / `/cargo/registry/` / `/vendor/` 区分；全 external 则 suppress
+- **路径 B（输出无 span，反向证明）**：kani-strict-wrapper.sh 的 5-markers gate（P37）。kani 5-markers 输出只汇总 count 不带 span——用 `os.walk('src/')` + 正则 grep entry crate src 是否含触发关键字（`asm!` / `simd_*` / `catch_unwind` / `::mask(` / `c"` 等）；含则 entry 自用 → FAILED，不含则必来自 deps → SUCCESS
+- **路径 C（单文件 pipeline 不读 deps，自然满足）**：verus / verifast / soteria / ror—— oracle 不需要额外 filter
+
+P37 实测影响：kani 通过率 93.8% → **98.8%**（10 FAILED 中 8 case 是 markers 来自 deps，2 case entry 自用保持 FAILED）。
+
 #### bug detect 归 SUCCESS（§四 B 派生）
 
 宪法 §四 B "测必要条件 / 非语义对错"——只问"工具能不能吃下这段代码并产出预期形状的输出"，不问产出对错。
