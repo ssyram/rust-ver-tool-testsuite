@@ -42,6 +42,14 @@ struct Args {
     /// Repeatable; entry passes if it matches any pattern. Empty = all.
     #[arg(long = "entry", value_name = "GLOB", global = true)]
     entries_filter: Vec<String>,
+
+    /// Skip the final cleanup of `runs/<id>/work/<exec_id>/` — keeps the
+    /// isolated working copy of each (tool, entry) task on disk so the
+    /// user can inspect what the runner prepared (rendered harness,
+    /// patched Cargo.toml, lib-mode lib.rs → __ts_inner.rs rename, etc.).
+    /// Default behaviour is to remove the work_dir post-spawn to save disk.
+    #[arg(long, global = true)]
+    keep_work_dir: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -51,13 +59,29 @@ enum Cmd {
         /// Path to a `runs/run-<id>/` directory containing `results.json`.
         run_dir: PathBuf,
     },
+    /// Prepare a single (tool, entry) work directory without spawning the
+    /// tool subprocess. Outputs the path to the prepared directory so the
+    /// user can `cd` into it and inspect the framework's intermediate
+    /// state — renamed `src/lib.rs` → `src/__ts_inner.rs` (in lib mode),
+    /// rendered harness template, patched Cargo.toml with extra_cargo_deps,
+    /// and exact `${TS_*}` env vars that would be applied at spawn.
+    Prepare {
+        /// Tool name (matches a `tools/<name>/` directory).
+        tool: String,
+        /// Entry id of the form `<feature>/<dir>/<entry-fn>` — must
+        /// resolve to a single registered entry.
+        entry: String,
+    },
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    if let Some(Cmd::Report { run_dir }) = args.cmd {
-        return regenerate_report(&run_dir);
+    if let Some(Cmd::Report { run_dir }) = &args.cmd {
+        return regenerate_report(run_dir);
+    }
+    if let Some(Cmd::Prepare { tool, entry }) = &args.cmd {
+        return prepare_one(&args, tool, entry);
     }
 
     // Make TS_PROJECT_ROOT available to subprocesses (and to tool.toml's
@@ -182,7 +206,7 @@ fn main() -> Result<()> {
             .par_iter()
             .map(|(tool, example, entry)| {
                 let entry_id = format!("{}/{}/{}", example.feature, example.dir, entry);
-                match exec::execute(tool, example, entry, &run_dir) {
+                match exec::execute(tool, example, entry, &run_dir, args.keep_work_dir) {
                     Ok(r) => {
                         // For FAILED tasks (not timeouts — those are SIGKILL by
                         // us and the stderr is whatever the child managed to
@@ -313,6 +337,134 @@ fn main() -> Result<()> {
     );
     println!("run_dir: {}", run_dir.display());
     println!("report:  {}", run_dir.join("report.md").display());
+    Ok(())
+}
+
+/// `runner prepare <tool> <entry>`: prepare a single (tool, entry) work
+/// directory without spawning the tool subprocess. Used to inspect what the
+/// runner does "intrusively" before the tool runs — the rendered harness,
+/// patched Cargo.toml, lib-mode lib.rs → __ts_inner.rs rename, etc. The
+/// preserved work_dir path is printed for the user to `cd` into.
+///
+/// `entry` must be the full `<feature>/<dir>/<entry-fn>` id (the same form
+/// reported in results.json `entry_id`), so this remains unambiguous in the
+/// presence of duplicate entry-fn names across examples.
+fn prepare_one(args: &Args, tool_name: &str, entry_id: &str) -> Result<()> {
+    if std::env::var_os("TS_PROJECT_ROOT").is_none() {
+        if let Ok(cwd) = std::env::current_dir() {
+            std::env::set_var("TS_PROJECT_ROOT", cwd);
+        }
+    }
+
+    let examples_dir = args
+        .examples
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", args.examples.display()))?;
+    let tools_dir = args
+        .tools
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", args.tools.display()))?;
+
+    let examples = discover::find_examples(&examples_dir)?;
+    let tools = discover::find_tools(&tools_dir)?;
+
+    let tool = tools
+        .iter()
+        .find(|t| t.name == tool_name)
+        .ok_or_else(|| anyhow::anyhow!("no tool named `{}` under {}", tool_name, tools_dir.display()))?;
+
+    let mut matches: Vec<(&discover::Example, &str)> = Vec::new();
+    for ex in &examples {
+        for entry in &ex.entries {
+            let id = format!("{}/{}/{}", ex.feature, ex.dir, entry);
+            if id == entry_id {
+                matches.push((ex, entry.as_str()));
+            }
+        }
+    }
+    if matches.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no entry matches `{}`. Use the full `<feature>/<dir>/<entry-fn>` form.",
+            entry_id
+        ));
+    }
+    if matches.len() > 1 {
+        return Err(anyhow::anyhow!(
+            "entry id `{}` is ambiguous ({} matches) — should be impossible for an exact-id match",
+            entry_id,
+            matches.len()
+        ));
+    }
+    let (example, entry) = matches[0];
+
+    let run_id = format!(
+        "prepare-{}-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        std::process::id()
+    );
+    let run_dir = args.runs.join(&run_id);
+    std::fs::create_dir_all(&run_dir)
+        .with_context(|| format!("creating {}", run_dir.display()))?;
+    let run_dir = run_dir
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", run_dir.display()))?;
+
+    let work_dir = exec::prepare(tool, example, entry, &run_dir)?;
+
+    // Print a tour of the prepared state so the user knows what to inspect.
+    println!("---");
+    println!("prepared work_dir: {}", work_dir.display());
+    println!();
+    println!("tool         : {}", tool.name);
+    println!("entry_id     : {}/{}/{}", example.feature, example.dir, entry);
+    println!("entry_mode   : {:?}", tool.entry_mode);
+    let target_rel = example.target_path.strip_prefix(&example.root).unwrap_or(&example.target_path);
+    let target_rel_display = if target_rel.as_os_str().is_empty() {
+        std::path::PathBuf::from(".")
+    } else {
+        target_rel.to_path_buf()
+    };
+    println!("target_path  : {}", target_rel_display.display());
+    println!();
+    println!("Files written by the runner (intrusive layer):");
+    let target_in_workdir = work_dir.join(target_rel);
+    match tool.entry_mode {
+        discover::EntryMode::Bin => {
+            println!("  + {}/src/bin/__ts_harness.rs   (rendered harness — new file)",
+                target_in_workdir.display());
+        }
+        discover::EntryMode::Lib => {
+            println!("  + {}/src/lib.rs                (rendered harness — replaces original lib)",
+                target_in_workdir.display());
+            println!("  + {}/src/__ts_inner.rs         (original lib.rs renamed here, re-exported by harness)",
+                target_in_workdir.display());
+        }
+    }
+    if !tool.extra_cargo_deps.is_empty() {
+        println!("  ~ {}/Cargo.toml                  ([dependencies] patched with extra_cargo_deps:",
+            target_in_workdir.display());
+        for dep in &tool.extra_cargo_deps {
+            println!("        {}", dep);
+        }
+        println!("    )");
+    }
+    println!();
+    println!("At spawn time (skipped by `prepare`), the runner would also:");
+    println!("  - strip every TS_* envvar from the child env");
+    println!("  - inject TS_ENTRY_FN={}", entry);
+    println!("  - inject TS_TARGET_CRATE={}", example.crate_name.replace('-', "_"));
+    if !example.env.is_empty() {
+        println!("  - inject hirusttest [env] vars:");
+        for (k, v) in &example.env {
+            println!("        {}={}", k, v);
+        }
+    }
+    println!("  - cwd = {}", target_in_workdir.display());
+    println!("  - argv (raw, ${{TS_*}} un-expanded) = {:?}", tool.command_raw);
+    println!("  - argv (expanded) = {:?}", tool.command);
+    println!();
+    println!("To inspect: cd {}", target_in_workdir.display());
+    println!("To clean up later: rm -rf {}", run_dir.display());
     Ok(())
 }
 

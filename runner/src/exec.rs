@@ -37,6 +37,7 @@ pub fn execute(
     example: &Example,
     entry: &str,
     run_dir: &Path,
+    keep_work_dir: bool,
 ) -> Result<ExecResult> {
     let exec_id = format!(
         "{}__{}__{}__{}",
@@ -277,8 +278,15 @@ pub fn execute(
 
     // 5. Cleanup work dir. Best-effort: cleanup failure leaves the work_dir
     // behind but does not invalidate captured raw outputs (see §7.6 spec note).
-    if let Err(e) = std::fs::remove_dir_all(&work_dir) {
-        eprintln!("[warn] cleanup {} failed: {:#}", work_dir.display(), e);
+    // P45: skip cleanup when --keep-work-dir is set so the user can inspect
+    // the framework's intermediate state (rendered harness / patched
+    // Cargo.toml / __ts_inner.rs rename / etc.).
+    if !keep_work_dir {
+        if let Err(e) = std::fs::remove_dir_all(&work_dir) {
+            eprintln!("[warn] cleanup {} failed: {:#}", work_dir.display(), e);
+        }
+    } else {
+        eprintln!("[keep-work-dir] preserved: {}", work_dir.display());
     }
 
     let exit_code = exit_status.code();
@@ -295,6 +303,113 @@ pub fn execute(
         raw_stdout_rel,
         raw_stderr_rel,
     })
+}
+
+/// Prepare a (tool, entry) work directory **without spawning the tool**.
+/// Mirror of `execute()` steps 1-2 only:
+///   1. cp example → work_dir (skip target/ + Cargo.lock)
+///   2. patch Cargo.toml with extra_cargo_deps (if any)
+///   3. render harness.rs.tera + place at src/bin/__ts_harness.rs (Bin mode)
+///      OR rename src/lib.rs → src/__ts_inner.rs and render harness as new
+///      src/lib.rs (Lib mode)
+///
+/// Returns the prepared work_dir path. Caller should NOT delete it — the
+/// whole point of `prepare` is to let the user inspect it.
+///
+/// Side effects to surface to the user (the `runner prepare` printout):
+///   - prepared work_dir path
+///   - rendered files list
+///   - effective tool.command (after `${TS_*}` expansion + envvar injections
+///     that will happen at spawn time — TS_ENTRY_FN / TS_TARGET_CRATE)
+pub fn prepare(
+    tool: &Tool,
+    example: &Example,
+    entry: &str,
+    run_dir: &Path,
+) -> Result<std::path::PathBuf> {
+    let exec_id = format!(
+        "{}__{}__{}__{}",
+        sanitize(&tool.name),
+        sanitize(&example.feature),
+        sanitize(&example.dir),
+        sanitize(entry),
+    );
+    let work_dir = run_dir.join("work").join(&exec_id);
+
+    if work_dir.exists() {
+        std::fs::remove_dir_all(&work_dir)
+            .with_context(|| format!("clearing {}", work_dir.display()))?;
+    }
+    copy_dir_excluding(&example.root, &work_dir, &["target", "Cargo.lock"])
+        .with_context(|| format!("copying {} → {}", example.root.display(), work_dir.display()))?;
+
+    let target_rel = example
+        .target_path
+        .strip_prefix(&example.root)
+        .with_context(|| {
+            format!(
+                "example target {} is not under example root {}",
+                example.target_path.display(),
+                example.root.display()
+            )
+        })?;
+    let target_in_workdir = work_dir.join(target_rel);
+
+    if !tool.extra_cargo_deps.is_empty() {
+        let cargo_toml = target_in_workdir.join("Cargo.toml");
+        patch_cargo_deps(&cargo_toml, &tool.extra_cargo_deps)
+            .with_context(|| format!("patching {}", cargo_toml.display()))?;
+    }
+
+    let mut tera = Tera::default();
+    tera.add_raw_template("harness", &tool.harness_template)
+        .context("registering harness template")?;
+    let mut ctx = TeraContext::new();
+    let crate_ident = example.crate_name.replace('-', "_");
+    ctx.insert("target_crate_name", &crate_ident);
+    ctx.insert("entry_fn", entry);
+    let entry_args: &str = example
+        .entry_args
+        .get(entry)
+        .map(String::as_str)
+        .unwrap_or("");
+    ctx.insert("entry_args", entry_args);
+    let rendered = tera
+        .render("harness", &ctx)
+        .context("rendering harness template")?;
+
+    let src_dir = target_in_workdir.join("src");
+    match tool.entry_mode {
+        EntryMode::Bin => {
+            let bin_dir = src_dir.join("bin");
+            std::fs::create_dir_all(&bin_dir)
+                .with_context(|| format!("creating {}", bin_dir.display()))?;
+            let harness_path = bin_dir.join("__ts_harness.rs");
+            std::fs::write(&harness_path, &rendered)
+                .with_context(|| format!("writing {}", harness_path.display()))?;
+        }
+        EntryMode::Lib => {
+            let original_lib = src_dir.join("lib.rs");
+            let inner_lib = src_dir.join("__ts_inner.rs");
+            if !original_lib.exists() {
+                return Err(anyhow!(
+                    "entry_mode = \"lib\" requires {} to exist",
+                    original_lib.display()
+                ));
+            }
+            std::fs::rename(&original_lib, &inner_lib).with_context(|| {
+                format!(
+                    "renaming {} → {}",
+                    original_lib.display(),
+                    inner_lib.display()
+                )
+            })?;
+            std::fs::write(&original_lib, &rendered)
+                .with_context(|| format!("writing {}", original_lib.display()))?;
+        }
+    }
+
+    Ok(work_dir)
 }
 
 /// Recursively copy `src` to `dst`, skipping any directory whose file name is in `excludes`.

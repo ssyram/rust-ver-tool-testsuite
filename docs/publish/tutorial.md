@@ -585,6 +585,167 @@ less deep-reports/cc-reports/kani.md
 
 ---
 
+## §10.5 透明性 — 看 runner 实际侵入式做了什么
+
+到这里你看的是 raw stdout/stderr 和最终 verdict。但 runner 在 spawn 工具之前会**修改一份 example 的隔离拷贝**——这是 principles.md §四 原则 A "signal file 非侵入"的对偶：信号文件不动 example，但**运行时拷贝是会被改的**（rendered harness 注入 / Cargo.toml 打补丁 / lib-mode 把 `src/lib.rs` 重命名）。默认这些 work_dir 在工具跑完后会 cleanup 掉。两个 flag 可以让你看见这一切：
+
+- `runner prepare <tool> <entry>` — 只做 cp + 改写步骤，**不 spawn 工具**。看完整的"工具看到什么"。
+- `runner --keep-work-dir ...` — 正常跑，但 spawn 后**不清理 work_dir**。看工具在改写 + 它自己跑完之后的所有产物（包括 cargo target/ 缓存）。
+
+### 10.5.1 prepare：bin-mode（cargo-check / kani / miri / verifast / soteria / ...）
+
+`cargo-check × hello/basic-hello` 是最干净的 bin-mode 例子。entry_mode = "bin" 意味着 example 的 `src/lib.rs` 不动，runner 在 `src/bin/` 下新加一个 `__ts_harness.rs` 作为调用点。
+
+```sh
+./target/release/runner prepare cargo-check hello/basic-hello/hello
+```
+
+输出（实际跑了，run-id `prepare-1778588004-12451`）：
+
+```text
+prepared work_dir: <runs>/prepare-1778588004-12451/work/cargo-check__hello__basic-hello__hello
+
+tool         : cargo-check
+entry_id     : hello/basic-hello/hello
+entry_mode   : Bin
+target_path  : .
+
+Files written by the runner (intrusive layer):
+  + <work>/src/bin/__ts_harness.rs   (rendered harness — new file)
+
+At spawn time (skipped by `prepare`), the runner would also:
+  - strip every TS_* envvar from the child env
+  - inject TS_ENTRY_FN=hello
+  - inject TS_TARGET_CRATE=basic_hello
+  - cwd = <work>/
+  - argv (raw, ${TS_*} un-expanded) = ["cargo", "check", "--bin", "__ts_harness"]
+  - argv (expanded) = ["cargo", "check", "--bin", "__ts_harness"]
+```
+
+进 work_dir 看实际写下来的东西：
+
+```sh
+$ cd <work>
+$ ls src/
+bin  lib.rs                  # 原 lib.rs 完全没动
+
+$ cat src/lib.rs              # === 原例 ===
+/// Smoke entry: zero-arg pub fn whose body exercises trivial Rust syntax.
+/// Used as the simplest possible target for end-to-end runner verification.
+pub fn hello() {
+    let _ = 1 + 1;
+}
+
+$ cat src/bin/__ts_harness.rs # === runner 新加 ===
+// Template variables (see runner/src/exec.rs Tera context):
+//   basic_hello — Rust ident form of cargo [package].name
+//   hello       — entry function name from hirusttest.toml
+//                 …
+fn main() {
+    let _ = basic_hello::hello();
+}
+```
+
+读起来：**runner 唯一的"侵入"就是给 example crate 加了一个 binary target**。原 lib 一个字节没改。cargo-check 跑的是 "请检查这个 binary 能编译" — 这个 binary 唯一干的事是调一次 entry function。SUCCESS = "entry's Rust 被 rustc 接受了"。
+
+### 10.5.2 prepare：lib-mode（Verus / Creusot / Aeneas 系列 / Soteria）
+
+lib-mode 工具不是去编译一个 binary，而是要求 example 的 lib 本身就是 tool dialect。run 时 runner 把原 `src/lib.rs` 改名 `src/__ts_inner.rs`，把 rendered harness 写成新的 `src/lib.rs`。
+
+```sh
+./target/release/runner prepare verus hello/basic-hello/hello
+```
+
+输出（run-id `prepare-1778588014-12475`）：
+
+```text
+entry_mode   : Lib
+
+Files written by the runner (intrusive layer):
+  + <work>/src/lib.rs                (rendered harness — replaces original lib)
+  + <work>/src/__ts_inner.rs         (original lib.rs renamed here, re-exported by harness)
+```
+
+```sh
+$ ls <work>/src/
+__ts_inner.rs  lib.rs
+
+$ cat <work>/src/__ts_inner.rs    # === 原 lib.rs 完整保留，改了名 ===
+/// Smoke entry: zero-arg pub fn whose body exercises trivial Rust syntax.
+pub fn hello() {
+    let _ = 1 + 1;
+}
+
+$ cat <work>/src/lib.rs           # === runner 渲染的 Verus harness ===
+use vstd::prelude::*;
+
+verus! {
+    mod __ts_inner;
+    pub use __ts_inner::*;
+
+    #[allow(dead_code)]
+    #[verifier::external]
+    fn __ts_invoke() {
+        let _ = __ts_inner::hello();
+    }
+}
+```
+
+注意 `mod __ts_inner` 写在 `verus! {}` **里面**——这是 principles.md §六 "确实经过工具" 的硬保证：如果 `mod` 在 `verus!` 外面，Verus 把 `__ts_inner` 交给 stock rustc，SUCCESS 就退化成"rustc parsed it"，跟 cargo-check 没区别。
+
+### 10.5.3 prepare：Cargo.toml 注入额外依赖（Creusot）
+
+少数工具要求 example 依赖 tool-specific support crate（Creusot 要 `creusot-std`）。Runner 通过 `extra_cargo_deps` 在 tool.toml 声明，prepare 时往 working-copy Cargo.toml 的 `[dependencies]` 里 splice 进去——**原 example/ 里的 Cargo.toml 不动**。
+
+```sh
+./target/release/runner prepare creusot hello/basic-hello/hello
+```
+
+输出：
+
+```text
+Files written by the runner (intrusive layer):
+  + <work>/src/lib.rs                (rendered harness — replaces original lib)
+  + <work>/src/__ts_inner.rs         (original lib.rs renamed here, re-exported by harness)
+  ~ <work>/Cargo.toml                ([dependencies] patched with extra_cargo_deps:
+        creusot-std = "0.11.0"
+    )
+```
+
+```sh
+$ diff examples/hello/basic-hello/Cargo.toml <work>/Cargo.toml
++ [dependencies]
++ creusot-std = "0.11.0"
+```
+
+读起来：原例没有 `[dependencies]`，runner 在 working copy 上加了一节。这是 principles.md §四 原则 C "异质需求沉到数据层"的实例——不在 runner 代码里给 Creusot 写 special case，而是 tool.toml 声明 `extra_cargo_deps`，runner 通用地照做。
+
+### 10.5.4 --keep-work-dir：保留 spawn 之后的状态
+
+`prepare` 截断到 spawn 之前。如果想看工具**跑完**之后留下了什么（编译产物、生成的 `.lean` / `.v` / `.vir.log`、wrapper 写的标记文件……），用 `--keep-work-dir`：
+
+```sh
+./target/release/runner --keep-work-dir --tool cargo-check --entry 'hello/basic-hello/hello'
+```
+
+stderr 会多打一行：
+
+```text
+[keep-work-dir] preserved: <runs>/run-xxx/work/cargo-check__hello__basic-hello__hello
+```
+
+然后 work_dir 里会有 cargo 自己产生的 `target/`、`Cargo.lock`（runner 之前 cp 时排了，cargo 重生成的）、rendered harness、未动的 src/lib.rs。验证用了这两个 flag 的人可以**自己**确认"runner SUCCESS 信号 == cargo 真的 check 过了"，不必信 runner 的报告。
+
+### 10.5.5 这两个 flag 不是 paper artifact 流程的一部分
+
+`prepare` 和 `--keep-work-dir` 是给**审计 / 学习 / debug 的人**的，不是生产流程。`examples/`、`tools/`、`runner/src/` + 一次正常的 `./target/release/runner` 跑完全自足。这两个 flag 只在你想"自己肉眼验证 runner 没作弊"的时候用。
+
+### 10.5.6 进阶：按阶段读 runner 流水线
+
+本节给的是"用法 demo"。如果你想看 **runner 9 阶段每一步生成什么形状 + 保证哪条 `principles.md` 法律 + 怎么用 prepare/--keep-work-dir 自己验**，读 [`tutorial-execution-walkthrough.md`](tutorial-execution-walkthrough.md)——按 discover → filter → cp → patch Cargo.toml → render harness → spawn env → spawn+capture → cleanup → classify+report 9 阶段铺开，每阶段四列（做什么 / 形状 / 法律 / 自己验），末尾给 §12 反作弊 6 条自检清单。
+
+---
+
 ## §11 故障 & FAQ
 
 ### 11.1 runner 报 "TS_X must be set"
@@ -652,5 +813,8 @@ for r in d["results"]:
 | 2 | run-1778587336-9313 | `runner --tool cargo-check --entry 'enum/**' --entry 'int/**' --entry 'panic/**'` |
 | 3 | run-1778587348-9788 | `runner --tool kani --entry 'charon-limit/inline-asm/*'` |
 | 4 | run-1778587363-10125 | `runner --tool kani --entry 'concurrency/thread-mutex/*'` |
+| 10.5.1 (prepare bin) | prepare-1778588004-12451 | `runner prepare cargo-check hello/basic-hello/hello` |
+| 10.5.2 (prepare lib) | prepare-1778588014-12475 | `runner prepare verus hello/basic-hello/hello` |
+| 10.5.3 (prepare + cargo patch) | prepare-1778588029-12592 | `runner prepare creusot hello/basic-hello/hello` |
 
-实际 output 已嵌入 §1-§4 各小节。
+实际 output 已嵌入 §1-§4 + §10.5 各小节。

@@ -97,6 +97,14 @@ runner report <runs/run-id>/
 | `--parallel <N>` | CPU 核数 | 并发上限 |
 | `--tool <NAME>` | (空 = 全部) | 只跑指定工具，可重复 |
 | `--entry <GLOB>` | (空 = 全部) | 只跑匹配 ID 的 entry，可重复 |
+| `--keep-work-dir` | off | 跑完不清理 `work/<exec_id>/`，方便看 runner 实际侵入了什么（rendered harness / patched Cargo.toml / lib-mode `lib.rs` ↔ `__ts_inner.rs`）。详 tutorial §10.5。 |
+
+### 子命令
+
+| 命令 | 用途 |
+|---|---|
+| `runner report <run-dir>` | 从 `results.json` 重生成 `report.md`（不重跑工具）。 |
+| `runner prepare <tool> <entry>` | 只做 cp + 注入步骤，**不 spawn 工具**；`entry` 必须是 `<feature>/<dir>/<entry-fn>` 全 id。打印 prepared work_dir 路径，供"自己肉眼看 runner 干了什么"用。详 tutorial §10.5。 |
 
 ---
 

@@ -145,6 +145,7 @@ e727b27 P41: artifact 实际 readiness 修订 — 强措辞同步 + private path
 - [ ] Wrapper.sh 写作惯例 — ✅ tool-integration.md §四
 - [ ] 添加新工具 step-by-step tutorial — ❌ **TODO**（README 现"按现有 tool 模仿"，可补 walk-through）
 - [ ] 添加新 entry step-by-step — ✅ README "加一个新 example" 段
+- [ ] runner 执行流水线 walkthrough — ✅ P45 `tutorial-execution-walkthrough.md`（9 阶段 × "做什么/形状/法律/自己验"+ §12 反作弊 6 条自检；新加 `runner prepare` + `--keep-work-dir` 作 evidence-collection 工具）
 - [ ] results.json schema 完整文档化 — ✅ detailed-design.md §六（含 P41 anonymized 字段）
 - [ ] **results.json 0 private paths** — ✅ P41 sed-anonymized + runner code 改用 raw `${TS_*}` form
 - [ ] hostname 不持久化 — ✅ P41 改为 None
