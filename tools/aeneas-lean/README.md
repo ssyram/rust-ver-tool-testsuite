@@ -41,9 +41,17 @@ Stage B 里 aeneas 单进程跑完整翻译：read_llbc → translate_crate_to_p
 
 **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空 ⇔ 翻译完整
 
-**形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。aeneas 用 `craise` 把所有 unsupported 项 push error_list；`Main.ml:773` `if has_errors then exit 1` 是单一信号通路。aeneas **不存在** silent emit-stub-but-exit-0 路径
+**形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路封堵。aeneas 主信号通路是 `craise` → `Errors.error_list` → exit ≠ 0。**但 v6 cc-route audit (2026-05-12) 发现 aeneas 还有 Warn 通道 partial 自陈**（不走 craise，exit 仍 0），wrapper 加 grep gate 拦截：
 
-**漏报盲点**：无（依赖 aeneas 上游正确实现 craise——已知所有 unsupported 路径都走 craise）
+**漏报盲点**（2026-05-12 v6 修订）：
+
+- aeneas **Warn 通道 partial**（已 wrapper 封堵）：aeneas 在以下情况发出 `[Warn]` 行 + 产物落盘 + exit 0，但产物形式不可用——wrapper `grep "model will not type-check|generated code will likely be incorrect|seems to be missing the corresponding field|could not find the information for item"` → FAILED：
+  - mutually-recursive trait declarations / impls（产物 "will not type-check"）
+  - associated type in trait declaration（"generated code will likely be incorrect"）
+  - Lean builtin model 缺字段（"seems to be missing the corresponding field"）
+  - core trait method silent drop（"could not find the information for item"）
+- 上游若新增更多 Warn 通道 partial 自陈 → 需扩展 wrapper grep pattern list
+- 依赖 aeneas 上游 `craise` 实现正确性（主信号通路）
 
 ## 安装
 

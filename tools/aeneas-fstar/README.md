@@ -31,9 +31,12 @@ Aeneas 是**纯翻译工具**，pipeline 终点是 `.fst` 文件落盘——下�
 
 **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。aeneas exit 0 ⇔ `Errors.error_list` 空
 
-**形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。所有 unsupported 都通过 `craise` push error_list；aeneas 无 silent emit-stub 路径
+**形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + wrapper 双通路封堵。主通路 `craise` → exit ≠ 0；**v6 cc-route audit (2026-05-12) 发现 Warn 通道 partial 自陈**（不走 craise，exit 仍 0），wrapper 加 grep gate 拦截。
 
-**漏报盲点**：无
+**漏报盲点**（2026-05-12 v6 修订）：
+
+- aeneas Warn 通道 partial（已 wrapper 封堵）：mutually-recursive trait / associated type / builtin model 缺字段 / core trait method silent drop 四类，wrapper grep 4-pattern OR → FAILED
+- 上游若新增 Warn 通道 partial 自陈 → 需扩展 wrapper grep pattern list
 
 ## 安装
 

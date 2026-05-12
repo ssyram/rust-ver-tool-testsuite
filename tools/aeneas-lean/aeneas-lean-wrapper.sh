@@ -81,11 +81,28 @@ mkdir -p "$LEAN_OUT"
 echo "[aeneas-lean-wrapper] stage 2: aeneas -backend lean"
 # 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
 # 导致下面的诊断行（[aeneas-lean-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+# 同时捕获 aeneas stderr+stdout 到 log（合流），便于 gate 检测 Warn 通道 partial。
 set +e
-"$AENEAS_BIN" -backend lean -dest "$LEAN_OUT" "$LLBC_FILE"
-AENEAS_EXIT=$?
+"$AENEAS_BIN" -backend lean -dest "$LEAN_OUT" "$LLBC_FILE" 2>&1 | tee aeneas_stage2.log
+AENEAS_EXIT=${PIPESTATUS[0]}
 set -e
 echo "[aeneas-lean-wrapper] aeneas exit: $AENEAS_EXIT"
+
+# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉): aeneas exit 0 不充分。
+# aeneas 在 Warn 通道（[Warn] 行）输出 partial 自陈而非 craise → exit 0
+# + 产物落盘但产物不可用。v6 cc-route 漏报审查锁定 4 类自陈：
+#   - "model will not type-check" → mutually-recursive trait / impl partial
+#   - "generated code will likely be incorrect" → associated type partial
+#   - "seems to be missing the corresponding field" → Lean builtin model 缺
+#   - "could not find the information for item" → core trait method silent drop
+# 任一命中 → FAILED。aeneas README 第 36/44 行"形式可证 0 漏报"自陈在
+# v6 cc 阶段被推翻，本 gate 恢复诚实。
+if grep -qE "model will not type-check|generated code will likely be incorrect|seems to be missing the corresponding field|could not find the information for item" aeneas_stage2.log; then
+    echo "[aeneas-lean-oracle] FAIL: aeneas exit 0 but Warn-channel partial self-disclosure ('model will not type-check' / 'generated code will likely be incorrect' / 'seems to be missing the corresponding field' / 'could not find the information for item')" >&2
+    rm -f aeneas_stage2.log
+    exit 1
+fi
+rm -f aeneas_stage2.log
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-lean-wrapper] generated lean files:"

@@ -68,13 +68,24 @@ echo "[aeneas-coq-wrapper] found llbc: $LLBC_FILE"
 COQ_OUT="$(pwd)/coq-out"
 mkdir -p "$COQ_OUT"
 echo "[aeneas-coq-wrapper] stage 2: aeneas -backend coq"
-# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
-# 导致下面的诊断行（[aeneas-coq-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+# 临时关 set -e：tee 合流 stderr+stdout 进 log，便于 Warn 通道 partial 检测。
 set +e
-"$AENEAS_BIN" -backend coq -dest "$COQ_OUT" "$LLBC_FILE"
-AENEAS_EXIT=$?
+"$AENEAS_BIN" -backend coq -dest "$COQ_OUT" "$LLBC_FILE" 2>&1 | tee aeneas_stage2.log
+AENEAS_EXIT=${PIPESTATUS[0]}
 set -e
 echo "[aeneas-coq-wrapper] aeneas exit: $AENEAS_EXIT"
+
+# Gate (R7 2026-05-12, Warn 通道 partial 自陈封堵): aeneas exit 0 + 任一
+# 4 类 Warn 自陈 → FAILED。v6 cc-route 漏报审查证实"model will not
+# type-check" / "generated code will likely be incorrect" / "seems to be
+# missing the corresponding field" / "could not find the information for
+# item" 是 partial 强信号。
+if grep -qE "model will not type-check|generated code will likely be incorrect|seems to be missing the corresponding field|could not find the information for item" aeneas_stage2.log; then
+    echo "[aeneas-coq-oracle] FAIL: aeneas exit 0 but Warn-channel partial self-disclosure ('model will not type-check' / 'generated code will likely be incorrect' / 'seems to be missing the corresponding field' / 'could not find the information for item')" >&2
+    rm -f aeneas_stage2.log
+    exit 1
+fi
+rm -f aeneas_stage2.log
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-coq-wrapper] generated coq files:"

@@ -68,13 +68,21 @@ echo "[aeneas-hol4-wrapper] found llbc: $LLBC_FILE"
 HOL4_OUT="$(pwd)/hol4-out"
 mkdir -p "$HOL4_OUT"
 echo "[aeneas-hol4-wrapper] stage 2: aeneas -backend hol4"
-# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
-# 导致下面的诊断行（[aeneas-hol4-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+# 临时关 set -e + tee 合流 stderr/stdout → log，便于 Warn 通道 partial 检测。
 set +e
-"$AENEAS_BIN" -backend hol4 -dest "$HOL4_OUT" "$LLBC_FILE"
-AENEAS_EXIT=$?
+"$AENEAS_BIN" -backend hol4 -dest "$HOL4_OUT" "$LLBC_FILE" 2>&1 | tee aeneas_stage2.log
+AENEAS_EXIT=${PIPESTATUS[0]}
 set -e
 echo "[aeneas-hol4-wrapper] aeneas exit: $AENEAS_EXIT"
+
+# Gate (R7 2026-05-12, Warn 通道 partial 自陈封堵): aeneas exit 0 + 4 类
+# Warn 自陈 → FAILED。详 aeneas-coq / aeneas-lean wrapper 同 gate。
+if grep -qE "model will not type-check|generated code will likely be incorrect|seems to be missing the corresponding field|could not find the information for item" aeneas_stage2.log; then
+    echo "[aeneas-hol4-oracle] FAIL: aeneas exit 0 but Warn-channel partial self-disclosure" >&2
+    rm -f aeneas_stage2.log
+    exit 1
+fi
+rm -f aeneas_stage2.log
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-hol4-wrapper] generated hol4 files:"

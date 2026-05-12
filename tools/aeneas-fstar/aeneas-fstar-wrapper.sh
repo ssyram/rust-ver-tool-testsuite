@@ -68,13 +68,21 @@ echo "[aeneas-fstar-wrapper] found llbc: $LLBC_FILE"
 FSTAR_OUT="$(pwd)/fstar-out"
 mkdir -p "$FSTAR_OUT"
 echo "[aeneas-fstar-wrapper] stage 2: aeneas -backend fstar"
-# 临时关 set -e：set -euo pipefail 下 aeneas 非 0 退出会直接终止脚本，
-# 导致下面的诊断行（[aeneas-fstar-oracle] FAIL: ...）丢失。oracle 不漏，但诊断质量降级。
+# 临时关 set -e + tee 合流 stderr/stdout → log，便于 Warn 通道 partial 检测。
 set +e
-"$AENEAS_BIN" -backend fstar -dest "$FSTAR_OUT" "$LLBC_FILE"
-AENEAS_EXIT=$?
+"$AENEAS_BIN" -backend fstar -dest "$FSTAR_OUT" "$LLBC_FILE" 2>&1 | tee aeneas_stage2.log
+AENEAS_EXIT=${PIPESTATUS[0]}
 set -e
 echo "[aeneas-fstar-wrapper] aeneas exit: $AENEAS_EXIT"
+
+# Gate (R7 2026-05-12, Warn 通道 partial 自陈封堵): aeneas exit 0 + 4 类
+# Warn 自陈 → FAILED。详 aeneas-coq / aeneas-lean wrapper 同 gate。
+if grep -qE "model will not type-check|generated code will likely be incorrect|seems to be missing the corresponding field|could not find the information for item" aeneas_stage2.log; then
+    echo "[aeneas-fstar-oracle] FAIL: aeneas exit 0 but Warn-channel partial self-disclosure" >&2
+    rm -f aeneas_stage2.log
+    exit 1
+fi
+rm -f aeneas_stage2.log
 
 if [[ $AENEAS_EXIT -eq 0 ]]; then
     echo "[aeneas-fstar-wrapper] generated fstar files:"

@@ -113,6 +113,16 @@ mkdir -p rocq_translation
 "$ROCQ_OF_RUST_BIN" translate --path src/lib.rs --output-path rocq_translation 2>rocq_stderr.log
 rc=$?
 cat rocq_stderr.log >&2
+# Gate (R7 2026-05-12, D3.1 tier-1 同步): tier-0 wrapper 已抓 "is not yet
+# supported" silent partial (see tools/rocq-of-rust/rocq-of-rust-wrapper.sh
+# 同 gate)。tier-1 README 第 43 / 136 行硬声明"tier-1 ⊆ tier-0" + "Stage 1
+# 与 tier-0 完全等价 6 道 grep"——v6 cc-route 漏报审查发现 tier-1 漏抄此
+# gate，破声明。补此 gate 恢复 tier-1 ⊆ tier-0 不变式。
+if grep -q "is not yet supported" rocq_stderr.log; then
+    echo "[ror-typecheck-oracle] FAIL: rocq-of-rust emitted 'is not yet supported' warning (silent partial translation; exit 0 but feature dropped from .v product)" >&2
+    rm -f rocq_stderr.log
+    exit 1
+fi
 rm -f rocq_stderr.log
 
 if [[ $rc -ne 0 ]]; then
