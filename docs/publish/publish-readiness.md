@@ -202,36 +202,39 @@ e727b27 P41: artifact 实际 readiness 修订 — 强措辞同步 + private path
 
 ### §3.10 Anonymization Workflow（投稿前 fork 重写）
 
-当前 main branch tracked files **0 私路径残留**（P41 + P43 anonymized）。但 **commit history** 仍含：
+当前 main branch tracked files **0 私路径残留**（P41 + P43 anonymized）。但 **commit history** 仍含两类需在 anonymized fork 时清理：
 
-1. **author identity**：`ssyram <liguany126@126.com>` (P27-P43 共 ~17 commits 都用此 identity)
-2. **commit message body** 中的 private path 示例（特别是 P41 commit body 列了 sed 替换前后对照）
+1. **author identity**：原作者 name + email（P27-P43 共 ~17 commits 都用此 identity）
+2. **commit message body** 中的 private path 示例（特别是 anonymization 类 commit 的 body 列了 sed 替换前后对照）
 
 Double-blind 投稿前**必须**做 anonymized fork。推荐 `git filter-repo`（比 `git filter-branch` 安全，python 写、上游推荐）：
 
 ```bash
 # 1. Clone repo 到独立 directory（防止误改 main）
-git clone --no-local rust-ver-tool-testsuite anon-fork
+git clone --no-local <project-dir> anon-fork
 cd anon-fork
 
 # 2. 安装 git-filter-repo (pip install git-filter-repo / brew install git-filter-repo)
 
 # 3. 重写 author / committer identity
+#    替换下面 <ORIG_NAME> / <ORIG_EMAIL> 为真实 author identity
 git filter-repo \
-  --mailmap <(echo "Anonymous <anon@example.com> ssyram <liguany126@126.com>") \
+  --mailmap <(echo "Anonymous <anon@example.com> <ORIG_NAME> <<ORIG_EMAIL>>") \
   --force
 
 # 4. 重写 commit message body 中的私路径示例
+#    把下面 <ORIG_USER> 替换为真实用户名
 cat > /tmp/msg-anon.py <<'PY'
 import re, sys
 msg = sys.stdin.buffer.read().decode('utf-8', errors='replace')
-msg = re.sub(r'/Users/ssyram/workspace/rust-ver/rust-ver-tool-testsuite/', '${TS_PROJECT_ROOT}/', msg)
-msg = re.sub(r'/Users/ssyram/\.opam/default/', '${OPAM_DEFAULT_PREFIX}/', msg)
-msg = re.sub(r'/Users/ssyram/\.rustup/toolchains/', '${RUSTUP_TOOLCHAINS}/', msg)
-msg = re.sub(r'/Users/ssyram/\.local/share/ts-tools/', '${TS_TOOLS_BASE}/', msg)
-msg = re.sub(r'/Users/ssyram/\.cargo/', '${CARGO_HOME}/', msg)
-msg = re.sub(r'/Users/ssyram/', '${HOME}/', msg)
-msg = re.sub(r'ssyramdeMacBook[A-Za-z0-9\-.]*', 'host', msg)
+ORIG = '<ORIG_USER>'  # 替换为真实用户名 (如 username)
+msg = re.sub(rf'/Users/{ORIG}/workspace/rust-ver/rust-ver-tool-testsuite/', '${TS_PROJECT_ROOT}/', msg)
+msg = re.sub(rf'/Users/{ORIG}/\.opam/default/', '${OPAM_DEFAULT_PREFIX}/', msg)
+msg = re.sub(rf'/Users/{ORIG}/\.rustup/toolchains/', '${RUSTUP_TOOLCHAINS}/', msg)
+msg = re.sub(rf'/Users/{ORIG}/\.local/share/ts-tools/', '${TS_TOOLS_BASE}/', msg)
+msg = re.sub(rf'/Users/{ORIG}/\.cargo/', '${CARGO_HOME}/', msg)
+msg = re.sub(rf'/Users/{ORIG}/', '${HOME}/', msg)
+msg = re.sub(rf'{ORIG}deMacBook[A-Za-z0-9\-.]*', 'host', msg)
 sys.stdout.buffer.write(msg.encode('utf-8'))
 PY
 git filter-repo --message-callback "
@@ -240,11 +243,11 @@ r = subprocess.run(['python3', '/tmp/msg-anon.py'], input=message, stdout=subpro
 return r.stdout
 " --force
 
-# 5. 检查 0 残留
-git log --all --format=%B | grep -E "ssyram|liguany|/Users/" || echo "OK: 0 残留"
+# 5. 检查 0 残留 (用 ORIG_USER 替换为真实用户名)
+git log --all --format=%B | grep -E "<ORIG_USER>|/Users/" || echo "OK: 0 残留"
 git log --all --format='%an <%ae>' | sort -u  # 应只有 "Anonymous <anon@example.com>"
 
-# 6. Push anonymized fork 到匿名 GitHub repo（如 `submission-2026-isssta`）+ archive 到 Zenodo
+# 6. Push anonymized fork 到匿名 GitHub repo（如 `submission-anon`）+ archive 到 Zenodo
 ```
 
 **注**：
