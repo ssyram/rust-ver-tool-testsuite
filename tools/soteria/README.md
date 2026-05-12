@@ -37,7 +37,8 @@ Soteria 是符号执行引擎；它的 pipeline：obol (Rust → ULLBC/LLBC JSON
   - exit 3 = obol/charon 前端 crash
 - **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。soteria exit 0 ⇔ 符号执行完成且无 bug
 - **形式严格性 — 0 漏报（不高估能力）**：✅ 形式可证。exit 1/2/3 完整覆盖 bug detect / symex crash / 前端 crash 三类 partial
-- **漏报盲点**：无
+- **漏报盲点**：
+  - **atomic / complex-float intrinsic 求解层简化**（D3.5 / 2026-05-12 补完）：4 个 v5 SUCCESS entries 含 `"An atomic intrinsic was encountered; it will be executed as sequential code"` 或 `"A complex floating point intrinsic was encountered; it will be executed with a significant over-approximation"`。前者同 kani concurrency：符号执行单线程语义约束（求解层假设，前端完成）；后者是 soundness-preserving abstraction（不属 silent skip）。按宪法 §六-3 前端测量原则保持 SUCCESS；该 warning 表征求解层简化口径，不属漏报盲点；列出以诚实声明。
 
 注：按工具自身语义 bug detect 是有效输出——但按"完整完成"精神，符号执行被 bug 中断 = 没完整跑完 → FAILED。
 

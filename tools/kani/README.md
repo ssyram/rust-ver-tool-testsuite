@@ -45,7 +45,9 @@ Kani 由 AWS 开发，将 Rust MIR 翻译为 CBMC 可消费的 GotoC IR，再由
 - **partial 暴露机制**：kani-compiler codegen 阶段任何 hard 失败 → exit ≠ 0；soft 失败（emit stub + warning）→ wrapper 抓 5 markers 后重写 exit 2
 - **形式严格性 — 0 误报（不冤枉能力）**：✅ 形式可证。任意合法 SUCCESS（不触发 5 markers）在 wrapper 下保持 SUCCESS（hello/basic-hello / bigint-arith / industrial/rsa-pkcs8 / industrial/sha256-digest 实测均 SUCCESS）
 - **形式严格性 — 0 漏报（不高估能力）**：✅ 实测 + 源码层封堵。5 markers 是 kani 自陈"我没把这条干完"的明确字面，与"工具接受"互斥。**注**：`caller_location` / `foreign function` warning 的处理状态保持现有口径（前端 stub + SAT 才显现），按宪法 §六-2 严格解读这是可争议的剩余口径——见漏报盲点。
-- **漏报盲点**：`caller_location` 与 `foreign function` 在 kani 上仍 codegen 为 stub 但 oracle 不抓（避高频假阳性）；kani 未来新增 unsupported MIR 节点类别（hax-engine / kani-compiler 演进可能引入新 stub 路径，需要扩展 5 markers list）
+- **漏报盲点**：
+  - `caller_location` 与 `foreign function` 在 kani 上仍 codegen 为 stub 但 oracle 不抓（避高频假阳性）；kani 未来新增 unsupported MIR 节点类别（hax-engine / kani-compiler 演进可能引入新 stub 路径，需要扩展 5 markers list）
+  - **concurrency 单线程语义**（D3.4 / 2026-05-12 补完）：8 个 v5 SUCCESS entries 含 kani `"Kani currently does not support concurrency. The following constructs will be treated as sequential operations"` warning（atomic_* / thread_local / fence）。kani-compiler **真 codegen 原子操作**（atomic_block / SKIP / binop），不是 stub —— 这是 BMC 单线程语义约束（不模拟多线程交错），属求解层假设而非前端 partial。按宪法 §六-3 前端测量原则**不抓 marker**，这些 entries 保持 SUCCESS。该 warning 表征求解层简化口径，不属漏报盲点；列出以诚实声明。
 
 ## 安装
 
