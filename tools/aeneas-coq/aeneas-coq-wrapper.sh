@@ -38,14 +38,42 @@ CHARON_EXIT=$?
 set -e
 cat charon_stderr.log >&2
 
-# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉): charon may exit 0 yet emit
-# silent failure signals on stderr ("is not supported" → opaque-fied
-# construct → silent partial; "^error:" with exit 0 → charon type error not
-# propagated). See D3.2 / D3.3 in docs/fixes/decisions-2026-05-11.md.
+# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉, P36 加 §六 宽度过滤):
+# charon may exit 0 yet emit silent failure signals on stderr:
+#   - "is not supported" → opaque-fied construct → silent partial
+#   - "^error:" with exit 0 → charon type error not propagated
+# See D3.2 / D3.3 in docs/fixes/decisions-2026-05-11.md.
+#
+# P36 §六 "当前 crate 焦点": filter signals by source path. If every partial
+# signal's nearby `--> path` is in external deps (/rustc/ std / /cargo/registry/
+# / vendor/), suppress (按 §六 外部依赖 opaque 不算 partial). If at least one
+# signal has no source path (charon mid-end fail) or path in entry crate
+# (src/__ts_inner.rs / src/lib.rs), keep FAILED.
 if [[ $CHARON_EXIT -eq 0 ]] && grep -qE "is not supported|^error:" charon_stderr.log; then
-    echo "[aeneas-coq-oracle] FAIL: charon exited 0 but emitted partial-signal stderr ('is not supported' or '^error:'); silent degradation prevented" >&2
-    rm -f charon_stderr.log
-    exit 1
+    if python3 -c "
+import re, sys
+text = open('charon_stderr.log').read()
+sig = re.compile(r'is not supported|^error:', re.M)
+path = re.compile(r'-->\s+(\S+):\d+:\d+')
+lines = text.splitlines()
+total, external = 0, 0
+for i, line in enumerate(lines):
+    if sig.search(line):
+        total += 1
+        for j in range(i+1, min(i+60, len(lines))):
+            m = path.search(lines[j])
+            if m:
+                if any(x in m.group(1) for x in ('/rustc/', '/cargo/registry/', '/vendor/')):
+                    external += 1
+                break
+sys.exit(0 if total > 0 and total == external else 1)
+"; then
+        echo "[aeneas-coq-oracle] all partial signals in external deps (rustc/registry/vendor) — suppressed per principles.md §六 当前 crate 焦点" >&2
+    else
+        echo "[aeneas-coq-oracle] FAIL: charon exited 0 but emitted partial-signal stderr in entry crate or with no source path; silent degradation prevented" >&2
+        rm -f charon_stderr.log
+        exit 1
+    fi
 fi
 rm -f charon_stderr.log
 

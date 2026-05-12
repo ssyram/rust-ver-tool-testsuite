@@ -1,4 +1,4 @@
-# creusot — 特性支持评估报告（v6 baseline）
+# creusot — 特性支持评估报告（v6 final post-P35 baseline）
 
 ## 元数据
 
@@ -7,8 +7,8 @@
 - **工具版本**：`cargo-creusot 0.11.0` + `Rust toolchain nightly-2026-02-27` + `Why3 1.8.2+git` + `why3find 1.3.0+dev` + `alt-ergo 2.6.2` + `z3 4.15.4` + `cvc4 1.8` + `cvc5 1.3.1`
 - **本工具实测**：n=161 / SUCCESS=121 / FAILED=40 / UNKNOWN=0，通过率 **75.2 %**
 - **时长分布**：avg 29654 ms / median 29997 ms / p90 37887 ms / max 44258 ms
-- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后）
-- **时效声明**：本快照锚定上述 run id + 工具版本 + corpus，不构成长期承诺。
+- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后 / P35 累积），架构 `bug detect 归 SUCCESS`（§四 B 派生）+ `当前 crate 焦点`（§六）已应用
+- **时效声明**：本快照锚定上述 run id + 工具版本 + corpus，不构成长期承诺。免责见 [`README.md`](../../README.md) 顶部。
 
 ## pipeline + 前端边界
 
@@ -45,13 +45,17 @@ cargo build → creusot-rustc（rustc + creusot translation passes）
 
 形式严格性 0 误报 / 0 漏报状态（按 P27 后宪法严格语义）：
 
-- **0 误报（不冤枉能力）**：实测层强信号——所有 FAILED 均为 exit=101 显式 reject，无"工具完成却被判错"的观察。形式严格性级别：**实测可信**，非源码层证明
-- **0 漏报（不高估能力）**：creusot 通过 `crash_and_error / span_err / span_fatal / dcx().span_err` 把 unsupported 升级为 rustc error → exit 101，路径在 creusot 源码层显式存在，本项目实测未发现 silent SUCCESS 但产物缺失的反例
+- **0 误报（不冤枉能力）**：实测层强信号——所有 40 个 FAILED 均为 exit=101 显式 reject，无"工具完成却被判错"的观察。形式严格性级别：**实测可信**，非源码层证明
+- **0 漏报（不高估能力）**：creusot 通过 `crash_and_error / span_err / span_fatal / dcx().span_err` 把 unsupported 升级为 rustc error → exit 101，路径在 creusot 源码层显式存在；本项目实测未发现 silent SUCCESS 但产物缺失的反例
 - **漏报盲点（诚实声明）**：
   - **盲点 1**：未独立校验 `verif/<crate>_rlib/` 目录与 `.coma` 文件实际存在 / 非空 / 含入口 fn 翻译——理论上若 creusot 内部 silent skip 某 fn 而 cargo-creusot 仍 exit 0，本测量会误报 SUCCESS。该盲点是"实测可信、非源码证明"的来源
-  - **盲点 2**：本工具仅停在前端翻译边界，**SUCCESS 不蕴含 SMT 求解结论**。每个 SUCCESS entry 上 stderr 普遍含 `warning: calling external function X with no contract will yield an impossible precondition`——表示 creusot-rustc 已接受代码并打算翻译，仅在 spec 完整性上不构成 prove 结果。本测量在 `cargo creusot prove` 这条路径上无观察
+  - **盲点 2**：本工具仅停在前端翻译边界，**SUCCESS 不蕴含 SMT 求解结论**。每个 SUCCESS entry stderr 普遍含 `warning: calling external function X with no contract will yield an impossible precondition`——表示 creusot-rustc 已接受代码并打算翻译，仅在 spec 完整性上不构成 prove 结果。本测量在 `cargo creusot prove` 这条路径上无观察
 
 每个 SUCCESS 案例的 stderr 统一含 `warning: unused import: 'creusot_std::prelude::*'`——harness prelude import 多数样例未实际触发，warning 不影响 exit。
+
+**bug detect 归 SUCCESS 派生（§四 B / architecture §一）的适用性**：creusot 在本测试 `tool.toml` 下停在 coma 翻译边界，**不进入 prove**——无"工具自陈在 entry 找到 bug"的信号路径。该派生原则在 creusot 当前配置下**无触发**（与 architecture.md §一末段表格一致：creusot 列"0 触发"）。所有 FAILED 均为"工具不能吃下代码"而非"工具吃下后判违反"。
+
+**当前 crate 焦点（§六）应用**：runner 注入 `TS_TARGET_CRATE` / `TS_ENTRY_FN`，creusot-rustc 对 entry crate 自身的 fn / type 翻译报错（如 `Unsupported constant value` / `forbidden dyn type`）才视作 partial → FAILED。本 run 全部 40 个 FAILED 的报错位置均落在 entry crate 自身的 MIR（含 derive 展开 / format macro 展开在 entry-crate 内的产物）——无"外部依赖路径 opaque / skip / stub"造成的虚假 FAILED 判定。
 
 ## 按 feature 类目分布
 
@@ -65,7 +69,7 @@ cargo build → creusot-rustc（rustc + creusot translation passes）
 
 ## 失败分桶（按 P31 §四.5 归因分类）
 
-40 个 FAILED 全部 exit=101，按 stderr 字面信号归 6 桶。**所有桶均归"工具不支持"（creusot 自身的翻译域 / 内部 panic / std-coverage 边界）**——本工具无 wrapper、无 corpus 引入 lint、无环境损坏。
+40 个 FAILED 全部 exit=101，按 stderr 字面信号归 7 桶。**所有桶均归"工具不支持"（creusot 自身的翻译域 / 内部 panic / std-coverage 边界）**——本工具无 wrapper、无 corpus 引入 lint、无环境损坏。
 
 ### 桶 1：显式 `forbidden dyn type`（7 case）
 
@@ -75,7 +79,7 @@ cargo build → creusot-rustc（rustc + creusot translation passes）
 - `trait-obj/dyn-dispatch`（用户 trait `Greeter`）
 - `lifetime/static-bound`（`dyn Any`）
 - `concurrency/thread-mutex`（`dyn Any + Send` from `JoinHandle`）
-- `miri-limit/thread-interleaving-partial`、`kani-limit/stack-unwinding/divide_with_recovery`、`charon-limit/generic-to-dyn-unsize`
+- `miri-limit/thread-interleaving-partial`、`kani-limit/stack-unwinding/trigger_divide_with_recovery`、`charon-limit/generic-to-dyn-unsize/boxed_display_from_u32`
 
 stderr 特征：
 
@@ -136,7 +140,7 @@ error: Unsupported constant value: Scalar(alloc{N}) of type &'?N [u8; M_usize]
 error: Unsupported constant expression: "{string}"
 ```
 
-**归因**：工具不支持。byte-string 字面量 / static-promoted str slice 落在 creusot 当前的常量翻译域之外；serde-derive / `::core::write` / `format!()` 展开生成此类构造。cargo 依赖树（含 vendor 的 `sha2 v0.11.0`、`rsa`、`num-bigint`、`serde`）能编通，creusot 接受 vendor 的 trait/struct 定义；失败点落在用户 entry 代码或 derive 展开。
+**归因**：工具不支持。byte-string 字面量 / static-promoted str slice 落在 creusot 当前的常量翻译域之外；serde-derive / `::core::write` / `format!()` 展开生成此类构造。注意按 §六 当前 crate 焦点判据：报错位置在 entry-crate 内（derive 展开是 entry-crate 自身的 token），不属于"外部依赖 stub"豁免。cargo 依赖树（含 vendor 的 `sha2 v0.11.0`、`rsa`、`num-bigint`、`serde`）能编通，creusot 接受 vendor 的 trait/struct 定义；失败点落在用户 entry 代码或其 derive 展开。
 **处理**：不修。
 
 ### 桶 5：creusot-rustc 内部 panic（4 case）
@@ -154,7 +158,7 @@ internal error: entered unreachable code(: ...)
 thread 'rustc' panicked at <crate path>:<line>:<col>:
 ```
 
-**归因**：工具不支持。union / async fn / inline asm 三类构造分别触发 creusot 内部不同 `unreachable!` assertion。虽是 panic 而非 graceful reject，但 P31 §四.5 把"官方 driver crash"归"工具的锅"——本测试集不替工具修。
+**归因**：工具不支持。union / async fn / inline asm 三类构造分别触发 creusot 内部不同 `unreachable!` assertion。按 P31 §四.5：本项目未维护 wrapper、报错来自上游官方 binary 自身——"官方 driver crash"归"工具的锅"，FAILED 站得住，本测试集不替工具修。
 **处理**：不修（属上游缺陷，应在上游 issue tracker 反馈）。
 
 ### 桶 6：spec 层未覆盖的 std lib 路径（8 case）
@@ -176,7 +180,7 @@ error[E0277]: the trait bound `X: creusot_std::model::DeepModel` is not satisfie
 error: NaN is not yet supported
 ```
 
-**归因**：工具不支持（lib spec 边界）。`creusot_std` 提供的规约 trait 未覆盖 `f64` / `BigInt` / 部分 std iterator——这是 creusot 自陈的 std-coverage 边界（README §"真实失败常见来源"已声明）。
+**归因**：工具不支持（lib spec 边界）。`creusot_std` 提供的规约 trait 未覆盖 `f64` / `BigInt` / 部分 std iterator——这是 creusot 自陈的 std-coverage 边界（README §"真实失败常见来源"已声明）。错误在 entry-crate 的 trait-bound 检查中触发——不属"外部 stub"豁免。
 **处理**：不修。
 
 ### 桶 7：其他显式拒（4 case）
@@ -219,6 +223,12 @@ error: unsupported definition kind DefId(...) Static { ... }
 corpus 增量主要来自 v6 新增的 `runnable/` 类目（15 / 15 全 SUCCESS）——这些 entries 都是简单可执行样例，creusot-rustc 翻译完整。其余 feature 的 SUCCESS / FAILED 计数与 v5.1 同分布（40 个 FAILED 完全延续 v5.1 的 40 个，无新增 / 无消解）。
 
 ΔS 不来自工具版本变化或翻译能力提升，纯粹是 corpus 扩张带入的简单样例。
+
+P27-P35 派生原则的影响：
+
+- **P31 §四.5 归因判据**：明确"无项目 wrapper"+"无 corpus lint"+"无环境损坏"→ 全 40 个 FAILED 落在"工具不支持"，无 UNKNOWN 升级候选
+- **P35 §六 当前 crate 焦点**：复核所有 FAILED 报错位置在 entry crate 自身（含 derive / macro 展开在 entry-crate 内）→ 无"外部 stub"豁免可应用，FAILED 分类不变
+- **bug detect 归 SUCCESS（§四 B 派生）**：creusot 本测试停在 coma 翻译边界，无 prove 阶段 → 该派生原则在 creusot 当前配置下零触发，不影响分类
 
 ## 修订建议清单（仅"我们导致"失败）
 

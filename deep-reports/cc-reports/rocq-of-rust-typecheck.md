@@ -1,4 +1,4 @@
-# rocq-of-rust-typecheck — 特性支持评估报告（v6 baseline）
+# rocq-of-rust-typecheck — 特性支持评估报告（v6 final post-P35 baseline）
 
 ## 元数据
 
@@ -8,8 +8,10 @@
   - `rocq-of-rust: rocq_of_rust_cli 0.1.0`（commit `a8a76a4d`，与 `tools/rocq-of-rust` 同 binary）
   - `coqc: The Rocq Prover, version 9.0.0` via opam switch `ror-test`
 - **本工具实测**：n=161 / SUCCESS=124 / FAILED=37 / UNKNOWN=0，通过率 **77.0 %**
-- **时长分布**：全量 avg 895 ms / p50 919 ms / p90 1561 ms / max 2304 ms；SUCCESS avg 1126 ms（min 335 / max 2304）；FAILED avg 122 ms（早退）
-- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P30 D3.1 silent partial gate / P31 法律传导后）
+- **时长分布**（全量）：avg 895 ms / p50 919 ms / p90 1561 ms / max 2304 ms
+  - SUCCESS 子集：avg 1126 ms（min 335 / max 2304）
+  - FAILED 子集：avg 122 ms（min 58 / max 238，早退）
+- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P30 D3.1 silent partial gate / P31 法律传导后 / P35 §六 当前 crate 焦点 同步）
 - **时效声明**：本快照锚定上述 run id + 工具版本 + corpus + 10 道 gate oracle，不构成长期承诺。ror 翻译质量、Rocq 9 typecheck 行为都可能随上游版本浮动。
 
 ## pipeline + 前端边界
@@ -45,6 +47,7 @@ SUCCESS / FAILED
 - **工具自身**：Stage 1 是 ror 官方 binary（`rocq-of-rust translate`），Stage 2 是官方 `coqc`
 - **项目维护 wrapper**（`rocq-of-rust-typecheck-wrapper.sh`）：activate opam switch + runtime bootstrap + 7 道 grep gate + Stage 2 coqc 调用 + gate 8-10
 - **前端测量边界**：rocq-of-rust 翻译落盘 **+ Rocq coqc 接受**（停在 `.vo` 写盘）。档 2/3（evaluate / 一致性）架构上不可达——详 `docs/research/ror-runnable-deep-dive-2026-05-11.md`
+- **当前 crate 焦点（P35 §六）**：oracle 仅对 entry crate 的 `TS_ENTRY_FN` 锚 `Definition` 是否出现做严格判定（gate 6）；ror 把 std / core / 第三方依赖处理为 opaque / placeholder 是其合法设计选择，不算 silent partial
 
 ## SUCCESS 信号 + 形式严格性
 
@@ -59,8 +62,8 @@ SUCCESS / FAILED
 3. 无 0-byte `.v`
 4. 至少一个 `.v` > 200 字节
 5. 产物不含显式 failure marker：`\(\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )`
-6. entry_fn 的 `Definition <fn>` 出现在某个 `.v` 产物中
-7. stderr 不含 `is not yet supported`（**P30 同步加的 D3.1 silent partial gate**，恢复 tier-1 ⊆ tier-0 不变式——v6 cc-route 漏报审查发现 tier-1 漏抄此 gate 已破声明，补此 gate）
+6. **entry crate 的 `Definition <TS_ENTRY_FN>` 出现在某个 `.v` 产物中**（P35 §六 当前 crate 焦点的实施锚——只要求 entry fn 本体出现，不追究外部依赖 item）
+7. stderr 不含 `is not yet supported`（**P30 同步加的 D3.1 silent partial gate**——v6 cc-route 漏报审查发现 tier-1 漏抄此 gate 已破 tier-1 ⊆ tier-0 不变式，补此 gate 恢复）
 
 档 1 新增的 3 道门（gate 8-10）：
 
@@ -82,6 +85,7 @@ SUCCESS / FAILED
 - **漏报盲点（诚实声明）**：
   - **`Admitted` 占位通过**：ror 翻译生成的 `Global Instance Instance_IsFunction_<fn> : ... Admitted.` 是 ror 设计选择（让 `Instance` lookup 通过），typecheck 通过 = 包含 `Admitted` 路径——这**不算漏报**，是档 1 的诚实边界：本档**只**测产物可编译性、**不**测语义正确性
   - **ror 翻译走 axiom**：若 ror 上游引入 `Axiom <name> : ...`（理论上 typecheck 仍过），同上不算漏报，是档位边界
+  - **外部依赖 opaque 化**（P35 §六）：ror 把 entry crate 引用的 std / 第三方 trait method 翻译为 opaque / placeholder 而 entry fn 本体仍翻译完整 → SUCCESS。这**不算漏报**，是宪法 §六"当前 crate 焦点"明示精神：外部依赖路径下的 opaque / skip / stub 不触发 partial 判定
   - **本档边界不等同档 2/3**（evaluate / 一致性）；不要把档 1 的 SUCCESS 误读为"产物语义可信"
 
 ## 失败分桶（按 P31 §四.5 归因分类）
@@ -165,9 +169,9 @@ stderr 特征：
 [ror-typecheck-oracle] FAIL: entry_fn '<name>' missing from .v products
 ```
 
-ror translate exit 0 + 产物落盘，但产物中**不含 `Definition <entry_fn>`**——ror 内部 silently 跳过该 entry（如对 `thread_local!` macro 展开后 ror 翻译出 `Definition value_*` 等支撑符号但跳过用户 fn 本体；对 mutually-recursive traits / mut param mismatch 等同理）。
+ror translate exit 0 + 产物落盘，但产物中**不含 `Definition <entry_fn>`**——ror 内部 silently 跳过该 entry crate 自身的 entry fn（如对 `thread_local!` macro 展开后 ror 翻译出 `Definition value_*` 等支撑符号但跳过用户 fn 本体；对 mutually-recursive traits / mut param mismatch 等同理）。
 
-**归因**：工具不支持。是 ror 翻译器对该类 MIR 构造的能力边界——silent partial 已由 gate 6 抓出。
+**归因**：工具不支持。是 ror 翻译器对 **entry crate 自身** entry fn 所涉 MIR 构造的能力边界——按宪法 §六 当前 crate 焦点，entry crate 的 item 被 silently skip 触发 partial 判定。silent partial 已由 gate 6 抓出。
 
 **处理**：不修。FAILED 站得住，按宪法 §六 oracle "不冤枉"原则严格执行（partial 翻译不算 SUCCESS）。
 
@@ -197,13 +201,14 @@ ror translate exit 0 + 产物落盘 + 产物中 `Definition raw_ptr_const_match`
 - **已通过 wrapper gate 封堵**：
   - 产物落盘形态退化（0 字节 / 小于 200 字节 / 无产物）→ gate 2/3/4
   - 显式 failure marker → gate 5
-  - entry_fn silent skip-item → gate 6
+  - entry crate entry_fn silent skip-item → gate 6（P35 §六 当前 crate 焦点的形式锚）
   - "is not yet supported" warning（D3.1 silent partial）→ gate 7（P30 同步加）
   - coqc exit 非 0 → gate 8
   - coqc exit 0 但无 .vo 或 stderr 含 Error → gate 9/10
 - **仍存在的盲点**：
   - **`Admitted.` 占位 typecheck 过**：ror 设计选择，档 1 边界明确不评判（不算漏报）
   - **ror 上游引入 `Axiom`**：理论上 typecheck 仍过，同档位边界
+  - **外部依赖 item opaque 化**：P35 §六 明示宪法精神——外部依赖路径下的 opaque / skip / stub 不触发 partial 判定（不算漏报）
   - **档 2/3**（evaluate / 一致性）架构上不可达，不在本工具范围（参 `tools/rocq-of-rust-typecheck/README.md` §"与 hax-lean 的可运行性对比"）
 
 ## v5.1 → v6 ΔS 解释
@@ -223,7 +228,7 @@ corpus 同时从 146 增到 161（+15 runnable entries），其他 entry 集合�
 
 ## 修订建议清单（仅"我们导致"失败）
 
-**无需修订**——所有 37 个 FAILED 均为工具能力边界（21 桶 A + 3 桶 B + 1 桶 C + 11 桶 D + 1 桶 E），按宪法 §六 UNKNOWN 严格语义 + §一 本地性原则 + tool-integration §四.5"我们 wrapper vs 官方 wrapper 归因"判据，全部归"工具不支持"——FAILED 站得住，工具开发者不能驳回。
+**无需修订**——所有 37 个 FAILED 均为工具能力边界（21 桶 A + 3 桶 B + 1 桶 C + 11 桶 D + 1 桶 E），按宪法 §六 UNKNOWN 严格语义 + §一 本地性原则 + §六 当前 crate 焦点 + `tool-integration.md` §四.5"我们 wrapper vs 官方 wrapper 归因"判据，全部归"工具不支持"——FAILED 站得住，工具开发者不能驳回。
 
 无 "我们 wrapper bug" / 无 "我们 corpus bug" / 无 "环境损坏" / 无 "漏报候选"。
 

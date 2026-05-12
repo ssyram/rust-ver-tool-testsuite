@@ -2,11 +2,11 @@
 
 ## 元数据
 
-- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final，合并 verus rerun `runs/run-1778561896-25488/` + R7 5-tool rerun；首次主跑因 `/tmp` 自动清理 verus-root 而 161/161 FAILED，治源迁 `~/.local/share/ts-tools/verus/` 后 rerun 合并入 v6，详 `docs/fixes/v6-verus-env-fix-2026-05-12.md`）
+- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final，合并 verus rerun `runs/run-1778561896-25488/` + R7 5-tool rerun；首次主跑因 `/tmp` 自动清理 verus-root 而 161/161 FAILED，P29 治源迁 `~/.local/share/ts-tools/verus/` 后 rerun 合并入 v6 final，详 `docs/fixes/v6-verus-env-fix-2026-05-12.md`）
 - **工具配置**：`tools/verus/`
 - **工具版本**：`Verus 0.2026.05.03.8b81855`，profile release，platform macos_aarch64，Rust toolchain `1.95.0-aarch64-apple-darwin`
 - **本工具实测**：n=161 / SUCCESS=66 / FAILED=95 / UNKNOWN=0，通过率 **41.0%**
-- **时长分布**：avg 323 ms / median 278 ms / p90 338 ms / p95 1390 ms / max 1563 ms（亚秒级；时间上限 120 s 远未触达——verus binary 内置 vstd，不走 cargo 重编 vstd）
+- **时长分布**：avg 323 ms / median 278 ms / p90 338 ms / p95 1390 ms / max 1563 ms（亚秒级；timeout 120 s 远未触达——verus binary 内置 vstd，不走 cargo 重编 vstd）
 - **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后；UNKNOWN 严格语义 + 本地性 / 最大善意 / 不公信问题）
 - **时效声明**：本快照锚定上述 run id + verus 0.2026.05.03 release binary（内置 vstd v0.2026.05.03）+ corpus，不构成长期承诺。verus 上游对 vstd 持续扩充 spec 覆盖、对 `--no-verify` 路径下的内部 panic site 会修复——本快照随之失效。
 
@@ -172,8 +172,9 @@ entry：`hax-limit/let-chains`。stderr：`error: let chains are only allowed in
 ## v5.1 → v6 ΔS 解释
 
 v5.1 SUCCESS=66 → v6 SUCCESS=66，ΔS=0。
+
 - v5 旧报告写 SUCCESS=51 是基于 v5 corpus 146 entry；v5.1 corpus 扩到 161、SUCCESS=66；v6 corpus 仍 161、SUCCESS=66，与 v5.1 一致。
-- v6 首次主跑因 `/tmp` 自动清理 verus-root 而 161/161 FAILED——治源迁 `~/.local/share/ts-tools/verus/` 后 rerun（`runs/run-1778561896-25488/`）合并入 v6 final（`runs/run-1778560393-59119/`），最终数据与预期一致。这是项目侧环境损坏，按宪法 §六 UNKNOWN (a) 类——但治源后已修，未在 final results 留下 UNKNOWN。
+- v6 首次主跑因 `/tmp` 自动清理 verus-root 而 161/161 FAILED——P29 治源迁 `~/.local/share/ts-tools/verus/` 后 rerun（`runs/run-1778561896-25488/`）合并入 v6 final（`runs/run-1778560393-59119/`），最终数据与预期一致。这是项目侧环境损坏，按宪法 §六 UNKNOWN (a) 类——但治源后已修，未在 final results 留下 UNKNOWN。
 - UNKNOWN 数 v5.1 22 → v6 0，是 P27 修宪后 DP-4 严格化的全局效应（不允许把工具能力边界记为 UNKNOWN）——不构成 ΔS。
 
 ## 修订建议清单（仅"我们导致"失败）
@@ -182,6 +183,6 @@ v5.1 SUCCESS=66 → v6 SUCCESS=66，ΔS=0。
 |---|---|---:|---|---|
 | — | — | 0 | **无"我们导致"失败**。所有 95 FAILED 均为工具能力边界（vstd 边界 / 语言子集未支持 / pipeline 设计 / 上游 panic / 显式 reject）。本工具 wrapper-less 设计 + harness 反作弊不变量已固化、未发现项目侧 bug | — |
 
-环境损坏类（v6 首次 verus-root 丢失）已治源、不再列入修订；详 `docs/fixes/v6-verus-env-fix-2026-05-12.md`。
+环境损坏类（v6 首次 verus-root 丢失）已 P29 治源、不再列入修订；详 `docs/fixes/v6-verus-env-fix-2026-05-12.md`。
 
 derived auto-spec SUCCESS 警告是判定边界问题、非"我们导致"——按宪法 §六 前端测量原则解释为前端通过、README 已诚实声明、oracle 不升 gate。

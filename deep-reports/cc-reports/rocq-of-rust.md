@@ -1,4 +1,4 @@
-# rocq-of-rust — 特性支持评估报告（v6 baseline）
+# rocq-of-rust — 特性支持评估报告（v6 final post-P35 baseline）
 
 ## 元数据
 
@@ -7,7 +7,7 @@
 - **工具版本**：`rocq_of_rust_cli 0.1.0` @ commit `a8a76a4d`，nightly-2024-12-07 toolchain
 - **本工具实测**：n=161 / SUCCESS=123 / FAILED=38 / UNKNOWN=0，通过率 **76.4%**
 - **时长分布**：avg 705ms / median 775ms / p90 1018ms / max 1657ms（N=7 attempt wrapper translate 主导，仍远低于 120s timeout）
-- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后 + P28 Gate 7 / D3.1 后）
+- **宪法 baseline**：`principles.md` v8 — P27 修宪 §一 双根本问题 + DP-4 UNKNOWN 严格化 / P28 D3.1 Gate 7 / P31 法律传导 / **P34 §六 当前 crate 焦点（宽度切割）入宪** / **P35 bug detect = SUCCESS 派生（rocq-of-rust 不适用——纯翻译无求解）**
 - **时效声明**：本快照锚定上述 run id + 工具版本 + corpus + 7 道门 + N=7-attempt wrapper oracle，不构成长期承诺。rocq-of-rust 设计上几乎永远 exit 0，silent fallback 通过产物字面 marker / silent skip-item / stderr `is not yet supported` 表达；新版本可能引入新的 fallback 路径不带已知 marker / 不被现有 7 道门抓。
 
 ## pipeline + 前端边界
@@ -30,9 +30,11 @@ rocq-of-rust-wrapper.sh
 
 `DYLD_LIBRARY_PATH` 指向 nightly-2024-12-07 sysroot `lib/`，`PATH` 注入对应 `bin/`，使 rocq-of-rust 内部调用 `rustc --print=sysroot` 时返回 nightly sysroot（不是 stable）。
 
-**前端 / 后端切割**：rocq-of-rust 是**纯翻译工具**，没有内置 Coq type-check / 证明阶段——pipeline 终点就是 `.v` 文件写盘。本工具"前端 = 全过程 = 翻译到 .v"。下游 `coqc` 是否能 type-check 该 .v 文件**不在本档评估范围**（由配套 `tools/rocq-of-rust-typecheck` 覆盖档 1）。
+**深度切割（§六 前端测量）**：rocq-of-rust 是**纯翻译工具**，没有内置 Coq type-check / 证明阶段——pipeline 终点就是 `.v` 文件写盘。本工具"前端 = 全过程 = 翻译到 .v"。下游 `coqc` 是否能 type-check 该 .v 文件**不在本档评估范围**（由配套 `tools/rocq-of-rust-typecheck` 覆盖档 1）。
 
-**项目维护的 wrapper**：`tools/rocq-of-rust/rocq-of-rust-wrapper.sh` 是项目层脚本，实施 N=7-attempt loop + 7 道门 AND-reduce + sysroot 注入 + product symlink。`rocq-of-rust translate` binary 是工具自身的官方 driver。
+**宽度切割（§六 当前 crate 焦点，P34 入宪）**：测量对象限于 example 的 entry crate（`TS_TARGET_CRATE` / `TS_ENTRY_FN` 锚点）。Gate 6 grep `^Definition <TS_ENTRY_FN>` 精确锚 entry crate 自己的 fn item；rocq-of-rust 如何处理外部依赖（`std` / `core` / 第三方 crate）**不计入测量**——把外部依赖翻译为 opaque / placeholder / stub 是工具合法的设计选择，不算 silent partial。
+
+**项目维护的 wrapper**：`tools/rocq-of-rust/rocq-of-rust-wrapper.sh` 是项目层脚本，实施 N=7-attempt loop + 7 道门 AND-reduce + sysroot 注入 + product symlink。`rocq-of-rust translate` binary 是工具自身的官方 driver。按 `tool-integration.md` §四.5"最近责任主体"判据，本 run 中 wrapper 自身无 IO / 解析 / shell 错——所有 FAIL 信号都是按设计转发工具自身的 partial 信号（exit code / 产物 grep / stderr grep），不触发 UNKNOWN (b) 类。
 
 ## SUCCESS 信号 + 形式严格性
 
@@ -48,14 +50,14 @@ rocq-of-rust-wrapper.sh
 3. 无 0-byte `.v`
 4. 至少一个 `.v` > 200 字节
 5. 产物不含显式 failure marker：`\(\* (Error |Unexpected |Please report!|thir failed to compile|Unimplemented )`
-6. entry_fn `Definition <fn>` 必须出现：`^[[:space:]]*Definition[[:space:]]+$TS_ENTRY_FN[[:space:]]`（runner 通过 `TS_ENTRY_FN` env 注入，`runner/src/exec.rs:178`）
+6. entry_fn `Definition <fn>` 必须出现：`^[[:space:]]*Definition[[:space:]]+$TS_ENTRY_FN[[:space:]]`（runner 通过 `TS_ENTRY_FN` env 注入，`runner/src/exec.rs:178`）—— **P34 §六 当前 crate 焦点的 oracle 实施层**：精确锚 entry crate 自己的 fn，不针对外部 dep
 7. **stderr 不含 `is not yet supported`**（2026-05-12 P28 / D3.1 加；rocq-of-rust 对 silent `Pattern::Wild` 退化等 partial 走 stderr warning + exit 0，本门拦截）
 
 任何一次 attempt 的任何门未满足 → FAILED + stderr 诊断 `[rocq-oracle] FAIL (attempt i/N): ...`。
 
 **形式严格性**（按 P27 后宪法严格语义评估）：
 
-- **0 误报（不冤枉能力）**：⚠️ 实测验证 0 误报，**不可形式证明**。oracle 用保守 marker 集 + entry_fn-level grep + N-attempt AND-reduce；用户合法代码极难误命中（合法 entry 必为 `hirusttest.toml` 列出的 fn 名，必为 `src/lib.rs` 顶层或嵌套模块内 fn item，rocq-of-rust 对每个 fn item 都生成 `Definition <name>`，gate 6 必命中）。N-attempt 不引入新误报路径——对确定性翻译路径产物 byte-identical，AND-reduce 与单次结果相同。Gate 7 `is not yet supported` 是 rocq-of-rust 上游 emit 的固定 warning 模板，与合法翻译路径不会重叠。
+- **0 误报（不冤枉能力）**：⚠️ 实测验证 0 误报，**不可形式证明**。oracle 用保守 marker 集 + entry_fn-level grep + N-attempt AND-reduce；合法 entry 必为 `hirusttest.toml` 列出的 fn 名，必为 `src/lib.rs` 顶层或嵌套模块内 fn item，rocq-of-rust 对每个 fn item 都生成 `Definition <name>`，gate 6 必命中。N-attempt 不引入新误报路径——对确定性翻译路径产物 byte-identical，AND-reduce 与单次结果相同。Gate 7 `is not yet supported` 是 rocq-of-rust 上游 emit 的固定 warning 模板，与合法翻译路径不会重叠。
 - **0 漏报（不高估能力）**：⚠️ 实测验证 0 漏报，**不可形式证明**。rocq-of-rust **设计上不用 exit code 表达 partial**（永远 exit 0，对所有 unsupported 用 rustc warning），所以 oracle 只能靠产物字面 grep + 产物 shape + stderr grep。理论上上游可能引入新 fallback 路径不带这 5 类 marker + 不写 `is not yet supported` warning。门 6 N-attempt 把已知非确定性 silent skip 闭环（thread_local! 类 entry 在 v4 重跑下稳定 FAILED）。门 7 把 v5 → v6 反向暴露的 Pattern::Wild 退化路径闭环。
 - **漏报盲点**：
   - 上游引入新 silent fallback 路径不带已知 markers 且 entry_fn 仍被生成 + 不写 `is not yet supported`（理论窗口；本 corpus 0 现象）
@@ -84,7 +86,7 @@ error[E0432]: unresolved import `num_bigint`
 
 （部分 industrial/x509-parser 触发 `E0433: failed to resolve`，本质同——都是 rocq-of-rust 内部 rustc 在 import resolution 阶段就拒了。）
 
-**归因**：工具不支持（输入模式边界 / 工具 pipeline 设计不读 deps）。rocq-of-rust 内部 `rustc_interface` 直接吃 `.rs` 而不解析 Cargo.toml，导致跨 crate 依赖在 rustc import resolution 阶段就 fail，rocq-of-rust 没机会对这些代码做翻译尝试。按 `principles.md` §六"工具 pipeline 设计不读 Cargo.toml" 明示属工具能力边界。
+**归因**：工具不支持（输入模式边界 / 工具 pipeline 设计不读 deps）。rocq-of-rust 内部 `rustc_interface` 直接吃 `.rs` 而不解析 Cargo.toml，导致跨 crate 依赖在 rustc import resolution 阶段就 fail，rocq-of-rust 没机会对 entry crate 做翻译尝试。按 `principles.md` §六"工具 pipeline 设计不读 Cargo.toml"明示属工具能力边界。**注**：这与 P34 §六 "当前 crate 焦点 / 外部依赖 opaque 不算 partial" 不冲突——前者讲"工具成功跑到 entry 后对外部 dep 做 opaque 翻译"，本桶是"工具内部 rustc 在到达 entry 翻译阶段前就拒了输入"，是 pipeline 输入边界，不是焦点切割。
 
 **处理**：不修。本地性原则下 FAILED 站得住。
 
@@ -106,7 +108,7 @@ error[E0670]: `async fn` is not permitted in Rust 2015
 
 或 `E0658: 'let' expressions in this position are unstable`。
 
-**归因**：工具不支持（工具 pipeline 设计**未透传 cargo manifest 里的 `edition = "2024"` 给内部 rustc**）。按 `principles.md` §六"官方 wrapper 不传 --edition" 一类明示属工具能力边界。
+**归因**：工具不支持（工具 pipeline 设计**未透传 cargo manifest 里的 `edition = "2024"` 给内部 rustc**）。按 `principles.md` §六"官方 wrapper 不传 --edition"一类明示属工具能力边界。
 
 **处理**：不修。FAILED 站得住。
 
@@ -153,7 +155,7 @@ stderr 特征：
    or rocq-of-rust non-deterministic translate path dropped entry on this attempt).
 ```
 
-**归因**：工具不支持（rocq-of-rust 在 `top_level.rs:349-390` 对部分 top-level kind 直接返回 `vec![]` 但 exit 0 + 5 道门全通过；或翻译路径非确定性导致 entry 被随机 drop）。这是 rocq-of-rust 设计层面的 silent partial—— exit code 不表达，必须靠产物存在性检测。
+**归因**：工具不支持。**P34 §六 当前 crate 焦点 oracle 直接判定**——entry crate 自己声明的 fn item silently 从产物中消失 = silent partial → FAILED。具体路径：rocq-of-rust 在 `top_level.rs:349-390` 对部分 top-level kind 直接返回 `vec![]` 但 exit 0 + 5 道门全通过；或翻译路径非确定性导致 entry 被随机 drop。这是 rocq-of-rust 设计层面的 silent partial—— exit code 不表达，必须靠产物存在性检测。
 
 **处理**：不修。FAILED 是 rocq-of-rust 自陈"我没翻这个 fn"的兑现。
 
@@ -183,12 +185,13 @@ warning: 1 warning emitted
 
 - 已通过 wrapper gate 封堵：
   - Gate 5 — 5 类显式 failure marker（`Error / Unexpected / Please report! / thir failed to compile / Unimplemented`）
-  - Gate 6 — entry_fn `Definition` 存在性 + N=7 AND-reduce（覆盖确定性 silent skip + 非确定性翻译路径 silent drop）
+  - Gate 6 — entry_fn `Definition` 存在性 + N=7 AND-reduce（覆盖确定性 silent skip + 非确定性翻译路径 silent drop；P34 §六 当前 crate 焦点 oracle 实施层）
   - Gate 7 — stderr `is not yet supported` warning（覆盖 silent Pattern 退化等 partial）
 - 仍存在的盲点：
   - 上游引入新 silent fallback 路径不带这 5 类 marker + 不写 `is not yet supported` warning（理论窗口；本 corpus 0 现象；新版本需重审 marker 集合）
   - rocq-of-rust 引入新的非确定性翻译路径中 N=7 次 attempt 都恰好采到含 entry_fn 的变体（修复 backlog：`ROCQ_OF_RUST_N_ATTEMPTS` env 已暴露，可临时调大）
-  - 合理 skip 类（`use` / `extern crate` / `macro_rules!` 直接 `vec![]`）—— 不算漏报，但若 entry_fn 名误指向这些 item（错误 corpus 设置），门 6 会捕获
+  - 合理 skip 类（`use` / `extern crate` / `macro_rules!` 直接 `vec![]`）—— 不是 fn item，gate 6 不针对（`TS_ENTRY_FN` 永远是 fn 名），属合理 skip，**不算漏报**
+  - 外部依赖路径下的 opaque / placeholder（P34 §六 "宽度切割" 显式排除）—— 工具如何处理 std / core / 第三方 crate 不计入测量，不触发 partial 判定
 
 ## v5.1 → v6 ΔS 解释
 
@@ -200,6 +203,8 @@ v6（加 Gate 7 `is not yet supported`）：123 SUCCESS / 38 FAILED / 0 UNKNOWN�
 - `unsafe-ptr/raw-ptr-const/raw_ptr_const_match`：v5.1 在旧 6 道门下 SUCCESS（5 类 marker 不命中 + entry_fn 在产物中），v6 加 Gate 7 后捕获 stderr `This kind of constant in patterns is not yet supported.` → FAILED
 
 corpus 未变化（仍 161 entries），oracle 紧缩 1 个新 silent partial。FAILED 分桶分布（A=21 / B=3 / C=1 / D=12 / E=1）与 v5.1 比仅 E 桶 +1。
+
+P34 §六 当前 crate 焦点入宪 + P35 bug detect = SUCCESS 派生**未触发本工具数据变动**：rocq-of-rust 是纯翻译工具，无求解 / 无 bug detect 行为；oracle 实施层在 P34 入宪前已暗用 entry crate 焦点（gate 6 早就只 grep `TS_ENTRY_FN`），P34 只是把已有实施沉淀为可援引精神。
 
 ## 翻译产物可运行性
 
@@ -226,7 +231,7 @@ corpus 未变化（仍 161 entries），oracle 紧缩 1 个新 silent partial。
 
 **无需修订**。所有 38 个 FAILED 均为工具能力边界（rocq-of-rust 单文件 pipeline 不读 deps / 内部 rustc 未透传 edition / TopLevelItem::Error union 分支 / `top_level.rs:349-390` silent `vec![]` / 非确定性翻译路径 silent drop / `Pattern::Wild` 退化）。本工具无任何"我们 wrapper bug / 我们 corpus 引入的 lint / 环境损坏"类失败：
 
-- `rocq-of-rust-wrapper.sh` 是项目维护的脚本，但本 run 中 wrapper 自身未触发任何 IO 错 / 解析错 / shell 语法错——所有 wrapper FAIL 信号都是按设计转发工具自身的 partial 信号（exit code / 产物 grep / stderr grep）
+- `rocq-of-rust-wrapper.sh` 是项目维护的脚本，但本 run 中 wrapper 自身未触发任何 IO 错 / 解析错 / shell 语法错——所有 wrapper FAIL 信号都是按设计转发工具自身的 partial 信号（exit code / 产物 grep / stderr grep）。按 `tool-integration.md` §四.5"最近责任主体"判据，不触发 UNKNOWN (b) 类
 - `hirusttest.toml` / harness 模板未在本 run 触发任何错——所有 stderr 都指向 rocq-of-rust 内部 rustc 或 rocq-of-rust 翻译阶段
 - 环境（nightly sysroot / `DYLD_LIBRARY_PATH` / `PATH`）在所有 161 entry 上一致工作，无环境损坏
 

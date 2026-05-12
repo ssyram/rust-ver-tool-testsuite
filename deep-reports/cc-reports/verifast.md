@@ -6,7 +6,8 @@
 - **工具配置**：`tools/verifast/`（`tool.toml` + `verifast-strict-wrapper.sh`，wrapper-strict-oracle-v2 = exit 0 ∧ `-verbose 1` 输出含 ≥1 行 `src/lib.rs(` 锚）
 - **工具版本**：`VeriFast 26.01 (released 2026-01-21) for C and Java`，prover `Z3v4.5 / Redux`，macOS arm64 prebuilt（`.tmp/agents-staging/tool-verifast/install/verifast-26.01/bin/verifast`）
 - **本工具实测**：n=161 / SUCCESS=13 / FAILED=148 / UNKNOWN=0，通过率 **8.1%**
-- **退出码分布**：exit 0 = 13（透传 SUCCESS）/ exit 1 = 30（verifast 自身 reject）/ exit 2 = 118（wrapper 把 vacuous pass 重写）
+- **退出码分布**：exit 0 = 13（wrapper anti-cheat gate 合法透传 SUCCESS）/ exit 1 = 30（verifast 自身 reject）/ exit 2 = 118（同一 gate 合法拦截 vacuous pass → FAILED）
+- **关键语义**：corpus 0 entry 含 `//@ req/ens/inv/pred` 注解 → verifast 不真做用户 spec verification。13 SUCCESS 与 118 vacuous-pass FAILED 是**同一 wrapper anti-cheat gate 的两侧**——前者因 entry 声明用户类型触发自动生成结构谓词（`is_Send_<T>_def` 等）使 symex 命中 `src/lib.rs(`；后者因 entry 无用户类型 / 无 spec / `-skip_specless_fns` 跳净所有 user fn → 0 命中 → 合法拦截。
 - **时长分布**：avg 298ms / median 251ms / p90 520ms / max 818ms
 - **宪法 baseline**：`principles.md` v8（P27 修宪后 UNKNOWN 严格语义 + 双根本问题 + §六 不允许 partial + 反作弊）
 - **时效声明**：本快照锚定 VeriFast 26.01 / 2026-01-21 prebuilt + macOS arm64 + wrapper-strict-oracle-v2 + 上述 6 件 verifast flag 组合 + 本 run id + corpus，不构成长期承诺。
@@ -56,7 +57,7 @@ verifast -verbose 1 -target macOS -shared -skip_specless_fns
 
 ## 失败分桶（按 P31 §四.5 归因分类）
 
-148 FAILED 分两层 7 桶。**所有桶归因均为"工具不支持"或"工具能力边界"（含 wrapper 拒 vacuous pass 这个设计意图）**——本工具在本 corpus 上无"我们 wrapper bug"或"我们 corpus bug"导致的失败。
+148 FAILED 分两层 7 桶。**所有桶归因均为"工具不支持"或"工具能力边界"（含 wrapper anti-cheat gate 合法拦截 vacuous pass 这个设计意图）**——本工具在本 corpus 上无"我们 wrapper bug"或"我们 corpus bug"导致的失败。注意：13 SUCCESS 与桶 1 的 118 FAILED 共享同一形式严格性机制，前者是 gate 的合法穿透（auto-generated struct predicates 触及 user file），后者是 gate 的合法拦截（0 user-file 命中）。
 
 ### 桶 1：wrapper 拒 vacuous pass（118 case）
 

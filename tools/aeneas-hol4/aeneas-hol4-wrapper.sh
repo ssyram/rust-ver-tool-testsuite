@@ -43,9 +43,31 @@ cat charon_stderr.log >&2
 # construct → silent partial; "^error:" with exit 0 → charon type error not
 # propagated). See D3.2 / D3.3 in docs/fixes/decisions-2026-05-11.md.
 if [[ $CHARON_EXIT -eq 0 ]] && grep -qE "is not supported|^error:" charon_stderr.log; then
-    echo "[aeneas-hol4-oracle] FAIL: charon exited 0 but emitted partial-signal stderr ('is not supported' or '^error:'); silent degradation prevented" >&2
-    rm -f charon_stderr.log
-    exit 1
+    # P36 §六 宽度过滤: 全 external 则放行
+    if python3 -c "
+import re, sys
+text = open('charon_stderr.log').read()
+sig = re.compile(r'is not supported|^error:', re.M)
+path = re.compile(r'-->\s+(\S+):\d+:\d+')
+lines = text.splitlines()
+total, external = 0, 0
+for i, line in enumerate(lines):
+    if sig.search(line):
+        total += 1
+        for j in range(i+1, min(i+60, len(lines))):
+            m = path.search(lines[j])
+            if m:
+                if any(x in m.group(1) for x in ('/rustc/', '/cargo/registry/', '/vendor/')):
+                    external += 1
+                break
+sys.exit(0 if total > 0 and total == external else 1)
+"; then
+        echo "[aeneas-hol4-oracle] all partial signals in external deps — suppressed per §六 当前 crate 焦点" >&2
+    else
+        echo "[aeneas-hol4-oracle] FAIL: partial signal in entry crate or no source path" >&2
+        rm -f charon_stderr.log
+        exit 1
+    fi
 fi
 rm -f charon_stderr.log
 

@@ -1,13 +1,14 @@
-# aeneas-lean — 特性支持评估报告（v6 baseline）
+# aeneas-lean — 特性支持评估报告（v6 final post-P35 baseline）
 
 ## 元数据
 
-- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final，合并 verus rerun + R7 5-tool rerun）
+- **数据源**：`runs/run-1778560393-59119/`（2026-05-12 v6 final post-P35，合并 verus rerun + R7 5-tool rerun）
 - **工具配置**：`tools/aeneas-lean/`
 - **工具版本**：`aeneas a14083a6` + 自家 charon `0.1.184`（commit `ed22146b`，由 `charon-pin` 锁定）
 - **本工具实测**：n=161 / SUCCESS=98 / FAILED=63 / UNKNOWN=0，通过率 **60.9%**
+- **失败 exit code 分布**：57 × exit 1（aeneas/charon 自陈或 wrapper gate 触发的 partial）+ 5 × exit 2（aeneas OCaml uncaught）+ 1 × exit 101（charon-driver stack overflow）
 - **时长分布**：avg 3284ms / median 1267ms / p90 7730ms / max 43353ms（`timeout_secs=600`，未触发）
-- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后）
+- **宪法 baseline**：`principles.md` v8（P27 修宪后 / P31 法律传导后 / P35 累积）
 - **时效声明**：本快照锚定上述 run id + 工具版本 + corpus，不构成长期承诺。
 
 ## pipeline + 前端边界
@@ -27,7 +28,7 @@ stage 1 做完整 cargo build + 把 MIR 序列化为 LLBC；stage 2 以 LLBC 为
 
 错误分流到不同 stream：charon 阶段错误（rustc stack overflow / cargo build failure / charon-driver SIGABRT）落 stderr；aeneas 阶段错误以 `[Error]` 彩色行写到 **stdout**；wrapper `[aeneas-lean-wrapper] ...` 提示也在 stdout。分类需 stdout + stderr 一起读。
 
-**wrapper 归属**：`aeneas-lean-wrapper.sh` 是项目维护，但其内部 gate 仅做"工具自陈 partial 信号"检测——把工具已经在 stderr/stdout 写出的 unsupported / warn 行翻译成 wrapper exit ≠ 0。按 `tool-integration.md` §四.5 最近责任主体原则，wrapper 自身从不报错（它没有 IO / 解析 / 网络逻辑），exit 非零必由工具层信号触发 → 失败仍归工具。
+**wrapper 归属**：`aeneas-lean-wrapper.sh` 是项目维护。其内部 gate 仅做"工具自陈 partial 信号"检测——把工具已经在 stderr/stdout 写出的 unsupported / warn 行翻译成 wrapper exit ≠ 0；同时含一处防御性 IO 检查（line 67："no .llbc file found"），仅在 charon exit 0 却未产出 llbc 时触发——这种状态本身是 charon 侧异常，wrapper 只是把它转成可观察的 exit。按 `tool-integration.md` §四.5 最近责任主体原则，wrapper 非零退出的所有可达分支均由工具层信号（aeneas/charon stderr/stdout marker、aeneas/charon exit code、charon 缺产物）驱动 → 失败仍归工具。
 
 ## SUCCESS 信号 + 形式严格性
 
@@ -190,7 +191,7 @@ v5.1：87/146 = 59.6%。v6：98/161 = 60.9%。
 
 **无需修订**。63 个 FAILED 全部为工具层（aeneas mid-end / aeneas Warn 通道 / charon silent partial / aeneas OCaml uncaught / charon stack overflow），无任何"我们 wrapper bug / 我们 corpus 引入的 lint / 环境损坏"类失败：
 
-- wrapper 自身无 IO / 解析 / 网络逻辑，gate 仅做信号翻译——wrapper exit 非零必由工具层 stderr/stdout 信号驱动
+- wrapper gate 仅做信号翻译 + 一处防御性 IO 检查（charon exit 0 但缺 llbc 时报错；本 corpus 未触发该分支）——wrapper exit 非零的所有实际触发路径均由工具层 stderr/stdout 信号或工具层 exit code 驱动
 - 桶 B / C 是 wrapper gate 触发，但归因到工具自陈（aeneas Warn / charon `is not supported`），非 wrapper bug
 - 桶 D 的 OCaml uncaught 是 aeneas / charon-ml 上游 bug
 - 桶 E 是 charon-driver stack overflow，charon 自身锅

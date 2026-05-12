@@ -38,14 +38,32 @@ CHARON_EXIT=$?
 set -e
 cat charon_stderr.log >&2
 
-# Gate (R7 2026-05-12 by 不公信 / Oracle 不冤枉): charon may exit 0 yet emit
-# silent failure signals on stderr ("is not supported" → opaque-fied
-# construct → silent partial; "^error:" with exit 0 → charon type error not
-# propagated). See D3.2 / D3.3 in docs/fixes/decisions-2026-05-11.md.
+# Gate (R7 + P36 §六 宽度过滤): partial signal suppressed if all in external deps.
 if [[ $CHARON_EXIT -eq 0 ]] && grep -qE "is not supported|^error:" charon_stderr.log; then
-    echo "[aeneas-fstar-oracle] FAIL: charon exited 0 but emitted partial-signal stderr ('is not supported' or '^error:'); silent degradation prevented" >&2
-    rm -f charon_stderr.log
-    exit 1
+    if python3 -c "
+import re, sys
+text = open('charon_stderr.log').read()
+sig = re.compile(r'is not supported|^error:', re.M)
+path = re.compile(r'-->\s+(\S+):\d+:\d+')
+lines = text.splitlines()
+total, external = 0, 0
+for i, line in enumerate(lines):
+    if sig.search(line):
+        total += 1
+        for j in range(i+1, min(i+60, len(lines))):
+            m = path.search(lines[j])
+            if m:
+                if any(x in m.group(1) for x in ('/rustc/', '/cargo/registry/', '/vendor/')):
+                    external += 1
+                break
+sys.exit(0 if total > 0 and total == external else 1)
+"; then
+        echo "[aeneas-fstar-oracle] all partial signals in external deps — suppressed per §六 当前 crate 焦点" >&2
+    else
+        echo "[aeneas-fstar-oracle] FAIL: partial signal in entry crate or no source path" >&2
+        rm -f charon_stderr.log
+        exit 1
+    fi
 fi
 rm -f charon_stderr.log
 
