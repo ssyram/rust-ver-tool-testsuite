@@ -1,28 +1,82 @@
 # rust-ver-tool-testsuite
 
-Rust 验证工具的**特性覆盖广度**筛选测绘框架。
+Rust 验证/分析工具的**特性覆盖广度**的中立广泛测度框架。
 
-- 一个例子 = 一个独立 cargo lib，含零参 `pub fn` 入口。
-- 一个工具 = `tools/<name>/{tool.toml + harness.rs.tera}`（必要时含 wrapper.sh）。
-- 矩阵 = 工具 × 入口。runner 不判 pass/fail——只记 exit code（SUCCESS / FAILED / UNKNOWN）+ 原始 stdout/stderr，由人解读。
+Rust 验证工具生态长期存在一个现实问题：工具很多、术语很多、各说各话。
+对于非领域内人士（尤其工业界用户）来说，最难的问题不是"怎么用某个工具"，而是"到底哪个工具在我的代码特性上可用"。他们往往还关心某些工具到底特性覆盖率如何，能做到多少层面上的覆盖等问题。
+
+这个项目做两件事：
+
+- 提供一个中立的运行框架（`runner/`）：同一批样例、同一套流程，批量跑多工具。
+- 提供一个可复用样例库（`examples/`）：按 Rust 特性组织，统一零参 `pub fn` 入口。
+
+**声明**：本项目提供的是中立测度框架与样例库，不对任何具体工具给出长期能力保证；任何覆盖率结果仅对对应时间、版本与环境成立，不作为工具最终评判或质量排名依据。
 
 **License**：Dual-licensed under Apache-2.0 OR MIT，详 [`LICENSE`](LICENSE)。
 Vendored crates (`vendor/`) 保留各自上游 license。
 
 ---
 
-## 初次 clone
+## 快速开始
 
 ```sh
 git clone <repo>
 cd rust-ver-tool-testsuite
 git submodule update --init --recursive   # 必须！industrial/ 部分 entries 依赖 vendor/rsa /sha2 /x509-parser
 cp .env.example .env                       # 按本机实际编辑路径
+cargo run --release --manifest-path runner/Cargo.toml
 ```
+
+运行后输出在 `runs/run-<unix-ts>-<pid>/`（`report.md` + `results.json` + `raw/`）。
 
 ---
 
-## 文档结构（必读，所有工作以此为标准）
+## 示例运行结果
+
+### 边界与不保证（请先看）
+
+- 我们测的是**前端支持性边界**：工具能否在其前端边界内完整接受样例。
+- 我们不测后端求解能力，不测证明是否成立，不测翻译语义忠实度。
+- 我们采用严格 oracle：不允许 partial / silent skip；工具自陈"没全干完"即 FAILED。
+- 我们保证的是**这套规则下的测度过程可复现**，不是对工具能力的长期担保。
+
+结果只对"某次运行"成立，必须带上时间、工具版本、host 环境一起解读。
+
+---
+
+### 预提供参考结果（有时空锚点）
+
+以下数字是本仓库当前预提供的参考观测（triple-run strict oracle 汇总）：
+
+- 时间锚点：2026-05-11（v1+v2+v3 合并口径）
+- 环境锚点：Apple M5 / macOS aarch64 / 24 GB / 10 cpu
+- 规模锚点：19 工具 × 146 entries = 2774 tasks
+
+| 工具 | 覆盖率（参考） |
+|---|---:|
+| cargo-check | 100.0% |
+| miri | 97.3% |
+| charon-poly | 95.2% |
+| charon-mono | 94.5% |
+| kani | 93.2% |
+| hax-fstar | 77.4% |
+| rocq-of-rust | 76.0% |
+| hax-lean | 75.3% |
+| creusot | 72.6% |
+| soteria | 74.7% |
+| hax-coq | 65.8% |
+| aeneas-coq / fstar / lean | 59.6% |
+| prusti | 38.4% |
+| verus | 34.9% |
+| aeneas-hol4 | 34.9% |
+| kmir | 31.5% |
+| verifast | 8.2% |
+
+这些数字用于"工具选型前的初步参考"，不构成长期保证。详细配置、oracle 口径、已知盲点见各工具 README 与 `deep-reports/`。
+
+---
+
+## 文档结构（开发者必读，所有工作以此为标准）
 
 **一切以 [`docs/design/`](docs/design/) 为中心**——任何更新都**优先维护文档**，再做代码 / 配置 / 实测的修改。文档与下游冲突时改下游不改文档（除非显式讨论修订上游）。
 
