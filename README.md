@@ -19,7 +19,7 @@ This project does two things:
 - Provides a neutral execution framework ([runner/](runner/)): run many tools over the same corpus with the same workflow.
 - Provides a reusable example corpus ([examples/](examples/)): Rust-feature-organised examples with standard zero-argument `pub fn` entry points.
 
-**Statement**: this project provides a neutral measurement framework and corpus. It does not provide long-term guarantees for any specific tool. Any reported coverage result is valid only for its corresponding time, version set, and environment, and must not be treated as a final judgement or quality ranking.
+**Statement**: this project provides a neutral measurement framework and corpus. The integrated tool runs are provided as demonstrative examples to show that the framework operates correctly and can be broadly used for measurement runs across concrete Rust tools. We do not provide long-term guarantees for any specific tool. Any reported coverage result is valid only for its corresponding time, version set, and environment, and must not be treated as a final judgement or quality ranking.
 
 **License**: Dual-licensed under Apache-2.0 OR MIT. See [LICENSE](LICENSE).
 Vendored crates under [vendor/](vendor/) retain their upstream licences.
