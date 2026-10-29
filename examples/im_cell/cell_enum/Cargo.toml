@@ -1,0 +1,8 @@
+[package]
+name = "cell_enum"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prusti-contracts = { git = "https://github.com/prusti/prusti", branch = "im-v2" }
+prusti-specs = { git = "https://github.com/prusti/prusti", branch = "im-v2" }

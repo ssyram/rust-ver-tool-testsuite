@@ -1,0 +1,8 @@
+[package]
+name = "vec-len"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prusti-contracts = { git = "https://github.com/prusti/prusti", branch = "basic-vec-specs" }
+prusti-specs = { git = "https://github.com/prusti/prusti", branch = "basic-vec-specs" }
